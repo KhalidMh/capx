@@ -50,6 +50,19 @@ describe('doctor checks', () => {
     })
   })
 
+  it('accepts parenthesized global and plain cds-dk version formats', async () => {
+    await expect(
+      checkCdsDk({ execute: success('@sap/cds-dk (global): 10.1.0') }),
+    ).resolves.toMatchObject({
+      ok: true,
+      major: 10,
+    })
+    await expect(checkCdsDk({ execute: success('@sap/cds-dk 10.1.0') })).resolves.toMatchObject({
+      ok: true,
+      major: 10,
+    })
+  })
+
   it('rejects an older or unparseable cds-dk version', async () => {
     await expect(
       checkCdsDk({ execute: success('@sap/cds-dk (global)  9.8.1') }),

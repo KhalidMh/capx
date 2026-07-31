@@ -9,6 +9,8 @@ import { promptFrontend } from '../prompts/frontend.js'
 import { promptLanguage } from '../prompts/language.js'
 import { promptProdDb } from '../prompts/prod-db.js'
 import { promptProjectName, validateProjectName } from '../prompts/project-name.js'
+import { validateTarget } from '../steps/01-validate-target.js'
+import { runCdsInit } from '../steps/02-cds-init.js'
 
 function exitCancelled() {
   cancel('Cancelled')
@@ -61,6 +63,11 @@ export async function runNewCommand(name, options = {}) {
     return
   }
 
-  const { facets, patches } = plan
-  console.log(JSON.stringify({ name: projectName, force: options.force, facets, patches }))
+  try {
+    await validateTarget(projectName, options)
+    await runCdsInit({ name: projectName, facets: plan.facets })
+  } catch (error) {
+    console.error(error.message)
+    process.exitCode = 1
+  }
 }

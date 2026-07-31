@@ -470,10 +470,10 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
    }
    facets.push('mta', 'test', 'lint')   // always
 
-   Note: 'nodejs' is the default — do not pass it.
+   Pass `--nodejs` to explicitly select capx's required Node.js runtime and keep initialization deterministic. Current cds-dk 10.0.6 empirically rejects the unqualified command in this flow.
    Note: do NOT pass 'cjs'. ESM is the CAP 10 default and what we want.
 
-3. execa('cds', ['init', 'my-app', '--add', facets.join(',')],
+3. execa('cds', ['init', 'my-app', '--nodejs', '--add', facets.join(',')],
          { stdio: 'inherit' })
 ```
 
@@ -862,12 +862,16 @@ Commit after each phase passes its acceptance test.
 
 - `src/steps/02-cds-init.js` + `src/decision-matrix.js`
 - E2E: `capx new test-minimal` with `{js, sqlite, hana, none, none, false}` and assert:
-  - the directory exists
-  - `package.json` has `@sap/cds` at major 10
-  - `package.json` has `"type": "module"` (ESM default)
-  - `cds watch` reaches the server-listening line, then kill it
+   - the directory exists
+   - `package.json` has `@sap/cds` at major 10
+   - `package.json` has `"type": "module"` (ESM default)
 
-**Done when:** smoke test #1 (§14) passes.
+`cds init` emits no model, so `cds watch` cannot boot until the empty service
+stub exists. Defer the server-listening smoke check to Phase 4 after step 08
+writes the stubs.
+
+**Done when:** the generated-project shape assertions pass; smoke test #1 (§14)
+is completed in Phase 4 after stubs are written.
 
 ### Phase 4 — verification sweep + patches
 

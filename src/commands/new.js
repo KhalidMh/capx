@@ -1,5 +1,6 @@
 import { cancel, isCancel } from '@clack/prompts'
 import { buildPlan } from '../decision-matrix.js'
+import { runDockerCheck, runDoctor } from '../doctor/index.js'
 import { promptApprouter } from '../prompts/approuter.js'
 import { promptAuth } from '../prompts/auth.js'
 import { promptConfirmation } from '../prompts/confirm.js'
@@ -28,6 +29,8 @@ export async function runNewCommand(name, options = {}) {
     return
   }
 
+  if (!(await runDoctor())) return
+
   const projectName = name ?? (await promptProjectName())
   if (isCancelled(projectName)) return
 
@@ -35,6 +38,7 @@ export async function runNewCommand(name, options = {}) {
   if (isCancelled(lang)) return
   const devDb = await promptDevDb()
   if (isCancelled(devDb)) return
+  if (devDb === 'postgres' && !(await runDockerCheck())) return
   const prodDb = await promptProdDb()
   if (isCancelled(prodDb)) return
   const auth = await promptAuth()

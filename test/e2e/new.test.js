@@ -1,12 +1,43 @@
 import { spawn } from 'node:child_process'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const cli = fileURLToPath(new URL('../../bin/capx.js', import.meta.url))
+let doctorBin
+
+beforeAll(async () => {
+  doctorBin = await mkdtemp(join(tmpdir(), 'capx-doctor-bin-'))
+  await Promise.all(
+    [
+      ['npm', 'printf 10.0.0'],
+      ['git', 'printf "git version 2.0.0"'],
+      ['cds', 'printf "@sap/cds-dk: 10.0.0"'],
+      ['mbt', 'printf "mbt 1.0.0"'],
+      [
+        'cf',
+        'if [ "$1" = "plugins" ]; then printf "multiapps 3.0.0"; else printf "cf version 8.0.0"; fi',
+      ],
+      ['docker', 'printf "Docker version 1.0.0"'],
+    ].map(async ([name, body]) => {
+      const path = join(doctorBin, name)
+      await writeFile(path, `#!/bin/sh\n${body}\n`)
+      await chmod(path, 0o755)
+    }),
+  )
+})
+
+afterAll(async () => {
+  await rm(doctorBin, { force: true, recursive: true })
+})
 
 function runCli(args, onOutput) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, args)
+    const child = spawn(process.execPath, args, {
+      env: { ...process.env, PATH: `${doctorBin}:${process.env.PATH}` },
+    })
     let settled = false
     const timeout = setTimeout(() => {
       if (settled) return

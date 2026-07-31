@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,9 +15,9 @@ const suite = cds ? describe : required ? describe : describe.skip
 let binDirectory
 let workspace
 
-function runNew() {
+function runNew(name = 'watch-project', language = 'js') {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, 'new', 'watch-project'], {
+    const child = spawn(process.execPath, [cli, 'new', name], {
       cwd: workspace,
       env: {
         ...process.env,
@@ -27,7 +27,7 @@ function runNew() {
       },
     })
     const prompts = [
-      ['Backend language?', '\r'],
+      ['Backend language?', language === 'ts' ? '\x1b[B\r' : '\r'],
       ['Database for local development?', '\r'],
       ['Database for production?', '\r'],
       ['Authentication?', '\x1b[A\r'],
@@ -57,6 +57,29 @@ function runNew() {
       else reject(new Error(`capx new exited with ${code}: ${output}`))
     })
   })
+}
+
+async function watchUntilListening(project) {
+  const subprocess = execa(npm, ['run', 'watch'], { cwd: project, all: true, detached: true })
+  try {
+    await new Promise((resolve, reject) => {
+      let watchOutput = ''
+      const timeout = setTimeout(
+        () => reject(new Error(`cds watch did not start: ${watchOutput}`)),
+        30000,
+      )
+      subprocess.all.on('data', (chunk) => {
+        watchOutput += chunk
+        if (!/server listening|listening on/i.test(watchOutput)) return
+        clearTimeout(timeout)
+        resolve()
+      })
+      subprocess.catch(reject)
+    })
+  } finally {
+    process.kill(-subprocess.pid, 'SIGTERM')
+    await subprocess.catch(() => undefined)
+  }
 }
 
 suite('real CAP 10 watch', () => {
@@ -102,31 +125,45 @@ suite('real CAP 10 watch', () => {
     expect(packageJson.type).toBe('module')
     expect(packageJson.dependencies['@sap/cds']).toBe('^10')
     expect(packageJson.devDependencies['@sap/cds-dk']).toBe('^10')
-    await mkdir(join(workspace, 'watch-project', 'srv'), { recursive: true })
-    await writeFile(
-      join(workspace, 'watch-project', 'srv', 'catalog-service.cds'),
-      'service CatalogService {}\n',
+    expect(packageJson.devDependencies['@cap-js/cds-test']).toBe('^1')
+    const cdsrc = JSON.parse(
+      await readFile(join(workspace, 'watch-project', '.cdsrc.json'), 'utf8'),
+    )
+    expect(cdsrc.requires.db['[development]']).toEqual({
+      kind: 'sqlite',
+      credentials: { database: 'watch-project.sqlite' },
+    })
+    await expect(
+      readFile(join(workspace, 'watch-project', 'srv', 'cat-service.cds'), 'utf8'),
+    ).resolves.toContain('service CatService')
+
+    await execa(npm, ['install'], { cwd: join(workspace, 'watch-project') })
+    await execa(npm, ['test'], { cwd: join(workspace, 'watch-project') })
+
+    await watchUntilListening(join(workspace, 'watch-project'))
+  }, 95000)
+
+  it('generates a TypeScript project with a JavaScript smoke test and starts cds watch', async () => {
+    await runNew('typescript-watch-project', 'ts')
+    const project = join(workspace, 'typescript-watch-project')
+    const packageJson = JSON.parse(await readFile(join(project, 'package.json'), 'utf8'))
+    const cdsrc = JSON.parse(await readFile(join(project, '.cdsrc.json'), 'utf8'))
+
+    expect(packageJson.devDependencies.typescript).toBeDefined()
+    expect(cdsrc.requires.db['[development]']).toEqual({
+      kind: 'sqlite',
+      credentials: { database: 'typescript-watch-project.sqlite' },
+    })
+    await expect(readFile(join(project, 'srv', 'cat-service.ts'), 'utf8')).resolves.toContain(
+      "import cds from '@sap/cds'",
+    )
+    await expect(readFile(join(project, 'test', 'smoke.test.js'), 'utf8')).resolves.toContain(
+      "cds.test(import.meta.dirname + '/..')",
     )
 
-    const subprocess = execa(cds, ['watch'], { cwd: join(workspace, 'watch-project'), all: true })
-    try {
-      await new Promise((resolve, reject) => {
-        let watchOutput = ''
-        const timeout = setTimeout(
-          () => reject(new Error(`cds watch did not start: ${watchOutput}`)),
-          30000,
-        )
-        subprocess.all.on('data', (chunk) => {
-          watchOutput += chunk
-          if (!/server listening|listening on/i.test(watchOutput)) return
-          clearTimeout(timeout)
-          resolve()
-        })
-        subprocess.catch(reject)
-      })
-    } finally {
-      subprocess.kill('SIGTERM')
-      await subprocess.catch(() => undefined)
-    }
+    await execa(npm, ['install'], { cwd: project })
+    await execa(npm, ['test'], { cwd: project })
+
+    await watchUntilListening(project)
   }, 95000)
 })

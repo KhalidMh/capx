@@ -36,7 +36,7 @@ Settled. No re-litigation during implementation.
 - Dev DB: persistent SQLite **or** PostgreSQL (local Docker).
 - Prod DB: SAP HANA Cloud **or** PostgreSQL on BTP.
 - Mismatched dev/prod allowed (SQLite dev + HANA prod is the CAP-recommended path).
-- Backend language: TypeScript **or** JavaScript. TS = `.ts` handlers, `tsconfig.json`, `cds-tsx` watch, `cds-typer` entity types.
+- Backend language: TypeScript **or** JavaScript. TS = `.ts` handlers, `tsconfig.json`, and standard `cds watch`; the `typescript` facet includes entity type generation.
 - Frontend at `app/frontend/`, approuter at `app/router/`.
 - Frontend: Vue **or** React (one only), scaffolded by `cds add vue|react --into frontend`.
 - Auth: one choice (none / XSUAA / IAS) with automatic dev-mocking via CAP profiles.
@@ -47,7 +47,7 @@ Settled. No re-litigation during implementation.
 - `mta.yaml` always generated (by `cds add mta`, then patched).
 - Initial CDS content: empty service stub. No sample data.
 - ESLint (via `cds add lint`) + Prettier configs included.
-- Test setup via `cds add test` + one passing smoke test.
+- Test setup via `cds add test`, with a fallback smoke test when the facet emits none.
 - No `CLAUDE.md` / Copilot instructions in MVP.
 - No GitHub Actions inside generated projects.
 - No `--using` flag, no non-interactive flag mode.
@@ -145,8 +145,7 @@ capx/
 │   │   ├── cat-service.cds.tmpl
 │   │   ├── cat-service.js.tmpl
 │   │   ├── cat-service.ts.tmpl
-│   │   ├── smoke.test.js.tmpl
-│   │   └── smoke.test.ts.tmpl
+│   │   └── smoke.test.js.tmpl
 │   ├── utils/
 │   │   ├── exec.js                  # execa wrapper, logging + timeouts
 │   │   ├── fs.js                    # atomic writes, mkdir -p
@@ -202,10 +201,8 @@ CAP 10 facets install most of these themselves. The table records what *should* 
 | `@cap-js/sqlite` | `^3` | SQLite dev or prod | `cds add sqlite` |
 | `@cap-js/postgres` | `^3` | Postgres dev or prod | `cds add postgres` |
 | `@cap-js/hana` | `^3` | HANA prod | `cds add hana` |
-| `@cap-js/cds-typer` | latest | TS | `cds add typer` |
-| `@cap-js/cds-test` | `^1` | always (devDep) | `cds add test` |
-| `chai` | `^6` | always (devDep) | peer of `cds-test` |
-| `chai-as-promised` | `^8` | always (devDep) | peer of `cds-test` |
+| `@cap-js/cds-typer` | latest | TS | `cds add typescript` |
+| `@cap-js/cds-test` | `^1` | only when capx writes the fallback test (devDep) | **capx** |
 | `@sap/xssec` | `^4` | XSUAA or IAS | `cds add xsuaa`/`ias` |
 | `@sap/xsenv` | `^6` | XSUAA or IAS | `cds add xsuaa`/`ias` |
 | `@sap/approuter` | `^22` | approuter | `cds add approuter` |
@@ -414,7 +411,7 @@ my-cap-app/
 │   ├── cat-service.cds          ** capx (empty stub)
 │   └── cat-service.ts           ** capx (empty stub)
 ├── test/
-│   └── smoke.test.ts            ** capx
+│   └── smoke.test.js            ** capx
 ├── tsconfig.json                (cds add typescript)
 └── xs-security.json             (cds add xsuaa)
 ```
@@ -458,7 +455,7 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
 2. Build the facet list:
 
    const facets = []
-   if (lang === 'ts') facets.push('typescript', 'typer')
+    if (lang === 'ts') facets.push('typescript') // includes @cap-js/cds-typer in DK 10.0.6
    if (devDb === 'sqlite'  || prodDb === 'sqlite')   facets.push('sqlite')
    if (devDb === 'postgres'|| prodDb === 'postgres') facets.push('postgres')
    if (prodDb === 'hana')  facets.push('hana')
@@ -494,7 +491,7 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
    {
      "requires": {
        "db": {
-         "[development]": { "kind": "<devDbKind>" },
+          "[development]": { "kind": "<devDbKind>" },
          "[production]":  { "kind": "<prodDbKind>" }
        },
        "auth": {
@@ -504,6 +501,9 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
      }
    }
 
+   For `devDbKind='sqlite'`, set `[development]` to
+   `{ "kind": "sqlite", "credentials": { "database": "<project>.sqlite" } }`.
+   For other development kinds and every production kind, set only `kind`.
    devDbKind / prodDbKind  ∈ { 'sqlite', 'postgres', 'hana' }
    authKind:  none → 'dummy' | xsuaa → 'xsuaa' | ias → 'ias'
 
@@ -535,10 +535,10 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
 11. Write README.md from template (§17)
 12. Patch package.json:
       - devDependency: prettier ^3
-      - scripts: add "format"
-      - if devDb=postgres: add "db:up" / "db:down"
-      Do not touch scripts cds-dk already wrote (start, watch, build,
-      test, lint) — see §11.7.
+       - scripts: preserve generated values and add missing watch, build, lint,
+         test, and format scripts
+       - if devDb=postgres: add "db:up" / "db:down"
+       Do not replace any script cds-dk already wrote — see §11.7.
 ```
 
 ### Phase G — stubs
@@ -604,9 +604,9 @@ Encoded as `src/decision-matrix.js` exporting `buildPlan(inputs): Plan`. This is
 
 | Input | Facets | capx writes | capx patches |
 |---|---|---|---|
-| `lang=ts` | `typescript`, `typer` | `srv/*.ts`, `test/*.ts` | — |
-| `lang=js` | — | `srv/*.js`, `test/*.js` (ESM) | — |
-| `devDb=sqlite` | `sqlite` | — | `.cdsrc.json` `[development]` |
+| `lang=ts` | `typescript` (includes `@cap-js/cds-typer`) | `srv/*.ts`, `test/smoke.test.js` | — |
+| `lang=js` | — | `srv/*.js`, `test/smoke.test.js` (ESM) | — |
+| `devDb=sqlite` | `sqlite` | — | `.cdsrc.json` `[development]` with `credentials.database='<project>.sqlite'` |
 | `devDb=postgres` | `postgres` | `docker-compose.yml`, `.env`, `.cdsrc-private.json` | `.cdsrc.json` `[development]`, `package.json` scripts |
 | `prodDb=hana` | `hana` | — | `.cdsrc.json` `[production]` |
 | `prodDb=postgres` | `postgres` | — | `.cdsrc.json` `[production]`, `mta.yaml` comment |
@@ -623,7 +623,7 @@ Note the column that matters: **`capx writes` is deliberately short.** If it gro
 
 ## 11. Templates
 
-Under `src/templates/`. Render with `src/utils/render.js` — a small `{{var}}` / `{{#if flag}}...{{/if}}` substituter. No template-engine dependency.
+Under `src/templates/`. Each writing step has a private `render` helper that replaces `{{var}}` placeholders; templates do not need conditionals or a shared template-engine dependency.
 
 Everything here is something `cds-dk` does **not** generate. If Phase 4 verification shows a facet now emits one of these, delete it from `capx`.
 
@@ -662,17 +662,11 @@ insert_final_newline = true
 ### 11.3 `.gitignore` — appended to what `cds init` writes
 
 ```
-# capx
-.cdsrc-private.json
 .env
-gen/
-mta_archives/
-*.mtar
 dist/
-.DS_Store
 ```
 
-Check for duplicates before appending; `cds init` already covers `node_modules/` and some of these.
+Append only missing entries. Preserve the entries generated by cds-dk, including `node_modules/`, `.cdsrc-private.json`, `gen/`, `mta_archives/`, and `*.mtar`.
 
 ### 11.4 `docker-compose.yml`
 
@@ -727,7 +721,7 @@ POSTGRES_PORT=5432
 
 ### 11.7 `package.json` scripts
 
-`cds init` in CAP 10 already writes `start`, `watch`, `build`, `test`, and `cds add lint` writes `lint`. **Do not overwrite them.** `capx` adds only:
+`cds init` in CAP DK 10.0.6 writes only `start`; it creates no `.cdsrc.json`, model folders, or tests when the project has no model. `cds add lint` creates `eslint.config.mjs` but no script. `capx` preserves existing generated scripts and supplies missing `watch: cds watch`, `build: cds build`, `lint: cds lint`, and `test: node --test`, then adds:
 
 ```json
 {
@@ -741,7 +735,7 @@ POSTGRES_PORT=5432
 
 `db:up` / `db:down` only when `devDb=postgres`.
 
-**TypeScript watch:** `@sap/cds-dk@10` ships three binaries — `cds`, `cds-ts`, `cds-tsx`. The `typescript` facet is expected to wire `cds-tsx watch` into the scripts itself. Verify at Phase 4; only patch if it doesn't.
+**TypeScript watch:** capx uses the same `watch: cds watch` script for JavaScript and TypeScript projects. It does not add a `cds-tsx` script.
 
 ### 11.8 CDS + handler stubs
 
@@ -792,23 +786,23 @@ CAP 10 creates ESM projects by default; `require`/`module.exports` will fail. If
 
 ### 11.9 Smoke test
 
-CAP 10 moved to Vitest and `@cap-js/cds-test` is a real package (1.0.1) with peer deps `chai@^6` and `chai-as-promised@^8`.
+`@cap-js/cds-test` is required for the `cds.test` compatibility API used by the fallback. When capx writes that fallback, it adds `@cap-js/cds-test: ^1` as a dev dependency unless a generated test exists or a version is already configured.
 
-**`cds add test` generates a test file already.** Prefer it. Only write this if the facet produced nothing:
+**CAP DK 10.0.6's `cds add test` creates no test in an initially model-free project.** Keep an emitted test if present; otherwise write this JavaScript `node --test` fallback with explicit `node:test` imports, regardless of backend language. It imports only Node and CAP runtime APIs, so it remains compatible with every supported Node 22 release; the TypeScript handler remains `srv/cat-service.ts`.
 
 ```js
+import test from 'node:test'
+import assert from 'node:assert/strict'
 import cds from '@sap/cds'
 
-const { expect } = cds.test().in(import.meta.dirname, '..')
+cds.test(import.meta.dirname + '/..')
 
-describe('service smoke test', () => {
-  it('boots the CAP server', () => {
-    expect(cds.server).to.exist
-  })
+test('service smoke test', () => {
+  assert.ok(cds.server)
 })
 ```
 
-**Verification duty (Phase 4):** read the current `@cap-js/cds-test` README and confirm the import shape, the `describe`/`it` provenance (Vitest globals vs explicit import), and whether `cds.test()` still takes `.in(dir, ...)`. Adjust both variants before shipping. If the facet output is good, delete both templates.
+**Verification result (Phase 4):** use `cds.test(import.meta.dirname + '/..')`; the fallback runs with Node's built-in `node --test` runner and imports `node:test` and `node:assert/strict` explicitly. Do not make a broad Vitest assertion for this fallback.
 
 ---
 
@@ -867,8 +861,8 @@ Commit after each phase passes its acceptance test.
    - `package.json` has `"type": "module"` (ESM default)
 
 `cds init` emits no model, so `cds watch` cannot boot until the empty service
-stub exists. Defer the server-listening smoke check to Phase 4 after step 08
-writes the stubs.
+stub exists. Phase 4 writes stubs before the required server-listening E2E;
+that E2E uses capx's generated stubs and must not inject a test-only service.
 
 **Done when:** the generated-project shape assertions pass; smoke test #1 (§14)
 is completed in Phase 4 after stubs are written.
@@ -887,6 +881,7 @@ The most important phase. Everything in §16 gets resolved here.
 ### Phase 5 — frontend + approuter
 
 Much smaller than in v1 — this is now two `cds add` calls plus an MTA module rename.
+CAP DK 10.0.6 already uses the intended service and db deployer module names; this phase handles only deferred frontend/approuter naming work.
 
 - `src/steps/03-cds-add-frontend.js`
 - `src/steps/05-patch-mta.js` using the `yaml` package
@@ -970,29 +965,29 @@ CI runs the matrix on Node 22 and Node 24.
 
 ---
 
-## 16. Open items — resolve during Phase 4
+## 16. Phase 4 findings
 
-Verify each against real output before coding. Do not assume.
+These findings are based only on the Phase 4 empirical checks. Items deferred to later phases remain deferred.
 
-1. **Which templates are now redundant.** Generate a maximal project and compare against §11. Delete any `capx` template a facet already produces. This is the single highest-value check in the plan.
+1. **Templates.** Retain all Phase 4 templates. The only redundant `.gitignore` entries are the generated entries; capx appends only `.env` and `dist/` when absent.
 
-2. **`typer` vs `typescript` overlap.** Run `cds help init` on cds-dk 10 and confirm whether both facets are needed or whether `typescript` implies `typer`.
+2. **TypeScript facet.** Use only the `typescript` facet; do not add a separate `typer` facet.
 
-3. **`cds add xsuaa` output.** Inspect the generated `xs-security.json`. If it already contains `Admin`/`User` role templates and role collections, ship it as-is. Only patch if roles are missing. `cds add xsuaa --plan <plan>` exists if the default plan is wrong.
+3. **XSUAA roles.** `cds add xsuaa` requires a minimal patch for the `Admin` and `User` scopes, role templates, and role collections. Preserve all unknown generated fields and add only missing entries.
 
-4. **`cds add approuter` output.** Inspect the generated `app/router/xs-app.json` and `package.json`. Confirm the route order works for our layout: service paths proxied to `srv-api`, catch-all serving static frontend. Patch only the gaps.
+4. **Approuter routes.** The generated router default needs only the service route. The static frontend catch-all belongs to Phase 5, when the frontend layout exists.
 
-5. **MTA module naming.** Record cds-dk's default names for the frontend and approuter modules, then write the rename patch against those exact strings.
+5. **MTA module names.** Generated module names are `srv` as `<project>-srv`, `db` as `<project>-db-deployer`, and router as `<project>`. The frontend facet creates no MTA module. Phase 5 must create or patch the frontend MTA strategy; do not patch these names in Phase 4.
 
-6. **`cds-tsx` wiring.** Confirm whether `cds add typescript` sets `cds-tsx watch` in scripts automatically (§11.7).
+6. **`cds-tsx` wiring.** `cds add typescript` does not add a `cds-tsx` script automatically. Phase 4 retains the standard `watch: cds watch` fallback; no separate `cds-tsx` script is emitted.
 
-7. **`@cap-js/cds-test` API.** Read the current README; confirm import shape, whether `describe`/`it` come from Vitest globals, and whether `cds.test().in()` is unchanged (§11.9).
+7. **`@cap-js/cds-test` fallback.** `cds.test` supports Node's built-in test globals. The JavaScript fallback imports `node:test` and `node:assert/strict` explicitly and uses `cds.test(import.meta.dirname + '/..')`, regardless of backend language, because unflagged Node test discovery only includes TypeScript files from Node 22.18. When capx writes that fallback, it conditionally adds `@cap-js/cds-test`; a real generated-project E2E runs `npm install` as test setup and then `npm test` successfully.
 
-8. **`--into` behavior.** Confirm `cds add vue --into frontend` produces `app/frontend/` and that `cds watch` still mounts it. Docs say omitting `--into` scaffolds directly into `app/` and mounts at `/`; the `--into` mount path needs checking.
+8. **Frontend `--into`.** `cds add vue --into frontend` creates `app/frontend`, configures Vite with base `/frontend`, `cds watch` serves it, and the frontend build succeeds. This remains Phase 5 work.
 
-9. **Postgres BTP service plan.** Whatever plan cds-dk emits is a starting point. Plan names vary by landscape and entitlement. Document in the README that users may need to change it; do not hardcode.
+9. **Postgres service plan.** The generated plan is `development`, but entitlement availability varies by landscape. Phase 10 README documentation must tell users to adjust it when needed. Do not hardcode a plan in Phase 4 or move the Phase 7 Postgres Docker work forward.
 
-10. **SQLite driver.** CAP 10 made native `node:sqlite` the default; `better-sqlite3` and `sql.js` need explicit deps. Confirm the `sqlite` facet's behavior and whether persistent-file mode needs any extra config.
+10. **SQLite driver.** CAP provides SQLite without a manually added low-level driver dependency. For persistent development data, capx configures `[development]` with `kind: 'sqlite'` and `credentials.database: '<project>.sqlite'` at the project root; hyphens in a valid project name remain literal in that filename.
 
 ---
 
@@ -1083,7 +1078,7 @@ Recorded so the delta is auditable. All version claims verified against the npm 
 **Added**
 
 - cds-dk major-version guard in the doctor (§7.1) — cds-dk 9 silently produces a CAP 9 project without `react`/`vue` support.
-- `chai@^6` and `chai-as-promised@^8` as `@cap-js/cds-test` peers.
+- Conditional `@cap-js/cds-test` support for capx's fallback smoke test; no direct Chai dependencies are added.
 - `yaml` as an installer dependency for `mta.yaml` patching.
 - `cds add lint` facet.
 - Phase 4 restructured into an explicit verification sweep before any patch code is written.

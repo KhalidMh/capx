@@ -144,7 +144,7 @@ describe('capx new Phase 3', () => {
     expect(result.code).toBe(0)
     await expect(
       readFile(join(workspace, 'prompted-app', 'package.json'), 'utf8'),
-    ).resolves.toContain('"type":"module"')
+    ).resolves.toContain('"type": "module"')
   })
 
   it('initializes a minimal CAP 10 ESM project through cds', async () => {
@@ -156,6 +156,21 @@ describe('capx new Phase 3', () => {
     )
     expect(packageJson.dependencies['@sap/cds']).toMatch(/^\^10\./)
     expect(packageJson.type).toBe('module')
+    expect(packageJson.scripts).toMatchObject({
+      watch: 'cds watch',
+      build: 'cds build',
+      lint: 'cds lint',
+      test: 'node --test',
+    })
+    await expect(
+      readFile(join(workspace, 'test-minimal', '.cdsrc.json'), 'utf8'),
+    ).resolves.toContain('"[development]"')
+    await expect(
+      readFile(join(workspace, 'test-minimal', 'db', 'schema.cds'), 'utf8'),
+    ).resolves.toContain('namespace test_minimal;')
+    await expect(
+      readFile(join(workspace, 'test-minimal', 'srv', 'cat-service.cds'), 'utf8'),
+    ).resolves.toContain('service CatService')
     await expect(readFile(cdsInvocationFile, 'utf8')).resolves.toBe(
       'init\ntest-minimal\n--nodejs\n--add\nsqlite,hana,mta,test,lint\n',
     )
@@ -174,7 +189,7 @@ describe('capx new Phase 3', () => {
     expect(result.code).toBe(0)
     await expect(
       readFile(join(workspace, 'test-minimal', 'package.json'), 'utf8'),
-    ).resolves.toContain('"type":"module"')
+    ).resolves.toContain('"type": "module"')
   })
 
   it('shows the selected configuration summary before Proceed', async () => {

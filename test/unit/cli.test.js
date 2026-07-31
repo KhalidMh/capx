@@ -46,7 +46,6 @@ describe('buildPlan', () => {
     ).toMatchObject({
       facets: [
         'typescript',
-        'typer',
         'sqlite',
         'hana',
         'xsuaa',
@@ -68,7 +67,7 @@ describe('buildPlan', () => {
         'db/schema.cds',
         'srv/cat-service.cds',
         'srv/cat-service.ts',
-        'test/smoke.test.ts',
+        'test/smoke.test.js',
       ],
     })
   })
@@ -98,9 +97,6 @@ describe('buildPlan', () => {
         'srv/cat-service.cds',
         'srv/cat-service.js',
         'test/smoke.test.js',
-        'docker-compose.yml',
-        '.env',
-        '.cdsrc-private.json',
       ],
       approuter: true,
       promptForApprouter: false,

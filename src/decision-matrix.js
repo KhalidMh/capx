@@ -5,7 +5,7 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
   const resolvedApprouter = promptForApprouter ? approuter : auth !== 'none'
 
   if (lang === 'ts') {
-    facets.push('typescript', 'typer')
+    facets.push('typescript')
   }
 
   if (devDb === 'sqlite' || prodDb === 'sqlite') {
@@ -43,12 +43,8 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
     'db/schema.cds',
     'srv/cat-service.cds',
     `srv/cat-service.${lang}`,
-    `test/smoke.test.${lang}`,
+    'test/smoke.test.js',
   )
-
-  if (devDb === 'postgres') {
-    patches.push('docker-compose.yml', '.env', '.cdsrc-private.json')
-  }
 
   const labels = {
     lang: { js: 'JavaScript (ESM)', ts: 'TypeScript' },

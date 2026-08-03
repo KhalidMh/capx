@@ -17,6 +17,8 @@ import { patchMta } from '../steps/05-patch-mta.js'
 import { writeExtras } from '../steps/06-write-extras.js'
 import { writeDocker } from '../steps/07-write-docker.js'
 import { writeStubs } from '../steps/08-write-stubs.js'
+import { installDependencies } from '../steps/09-install-deps.js'
+import { initializeGit } from '../steps/10-git-init.js'
 
 function exitCancelled() {
   cancel('Cancelled')
@@ -71,30 +73,59 @@ export async function runNewCommand(name, options = {}) {
   }
 
   try {
-    await validateTarget(projectName, options)
-    await runCdsInit({ name: projectName, facets: plan.facets })
-    await patchCdsrc(projectName, { ...inputs, name: projectName })
-    if (plan.addFrontend) {
-      await runCdsAddFrontend(projectName, plan)
-    }
-    if (plan.patchMta) {
-      await patchMta(projectName, {
-        name: projectName,
-        removePostgresDeployment: plan.removePostgresDeployment,
-        patchRouterConfig: plan.patchRouter,
-      })
-    }
-    const needsCdsTest = await writeStubs(projectName, { ...inputs, name: projectName })
-    await writeExtras(projectName, {
-      ...inputs,
-      name: projectName,
-      lang,
-      postgresDev: plan.postgresScripts,
-      needsCdsTest,
-    })
-    if (plan.writeDocker) await writeDocker(projectName, { name: projectName })
+    await runProjectSteps(projectName, inputs, plan, options)
   } catch (error) {
     console.error(error.message)
     process.exitCode = 1
   }
+}
+
+const defaultProjectSteps = {
+  validateTarget,
+  runCdsInit,
+  patchCdsrc,
+  runCdsAddFrontend,
+  patchMta,
+  writeStubs,
+  writeExtras,
+  writeDocker,
+  installDependencies,
+  initializeGit,
+}
+
+export async function runProjectSteps(
+  projectName,
+  inputs,
+  plan,
+  options,
+  steps = defaultProjectSteps,
+  { printError = console.error } = {},
+) {
+  await steps.validateTarget(projectName, options)
+  await steps.runCdsInit({ name: projectName, facets: plan.facets })
+  await steps.patchCdsrc(projectName, { ...inputs, name: projectName })
+  if (plan.addFrontend) await steps.runCdsAddFrontend(projectName, plan)
+  if (plan.patchMta) {
+    await steps.patchMta(projectName, {
+      name: projectName,
+      removePostgresDeployment: plan.removePostgresDeployment,
+      patchRouterConfig: plan.patchRouter,
+    })
+  }
+  const needsCdsTest = await steps.writeStubs(projectName, { ...inputs, name: projectName })
+  await steps.writeExtras(projectName, {
+    ...inputs,
+    name: projectName,
+    lang: inputs.lang,
+    postgresDev: plan.postgresScripts,
+    needsCdsTest,
+  })
+  if (plan.writeDocker) await steps.writeDocker(projectName, { name: projectName })
+  try {
+    await steps.installDependencies(projectName, plan)
+  } catch (error) {
+    printError(`Install failed. Resume with: cd ${projectName} && npm install`)
+    throw error
+  }
+  await steps.initializeGit(projectName)
 }

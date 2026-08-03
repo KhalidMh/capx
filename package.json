@@ -18,7 +18,8 @@
     "test:watch:required": "node test/e2e/run-required-cds-watch.js",
     "test:frontend:required": "node test/e2e/run-required-frontend.js",
     "test:mta:required": "node test/e2e/run-required-mta.js",
-    "test:docker:required": "node test/e2e/run-required-docker.js"
+    "test:docker:required": "node test/e2e/run-required-docker.js",
+    "test:install-git:required": "node test/e2e/run-required-install-git.js"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",

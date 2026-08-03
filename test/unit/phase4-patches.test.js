@@ -154,7 +154,7 @@ describe('Phase 4 patches', () => {
     const gitignore = await readFile(join(directory, '.gitignore'), 'utf8')
     expect(gitignore.match(/^\.env$/gm)).toHaveLength(1)
     expect(gitignore).toContain('dist/')
-    expect(gitignore).toContain('.cdsrc-private.json')
+    expect(gitignore.match(/^\.cdsrc-private\.json$/gm)).toHaveLength(1)
     expect(gitignore).toContain('gen/')
     expect(gitignore).toContain('mta_archives/')
     expect(gitignore).toContain('*.mtar')
@@ -167,6 +167,27 @@ describe('Phase 4 patches', () => {
       'root = true',
     )
     await expect(readFile(join(directory, 'README.md'), 'utf8')).resolves.toContain('# bookshop')
+  })
+
+  it('adds PostgreSQL scripts only when explicitly requested by the execution plan', async () => {
+    const directory = await project()
+
+    await writeExtras(directory, {
+      name: 'bookshop',
+      devDb: 'sqlite',
+      prodDb: 'hana',
+      auth: 'none',
+      postgresDev: true,
+    })
+
+    const packageJson = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
+    expect(packageJson.scripts).toMatchObject({
+      'db:up': 'docker compose up -d',
+      'db:down': 'docker compose down',
+    })
+    await expect(readFile(join(directory, 'docker-compose.yml'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
   })
 
   it('writes an ESM service and Node test fallback only when CDS generated no test', async () => {

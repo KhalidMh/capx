@@ -4,21 +4,38 @@ import { parseDocument } from 'yaml'
 import { readJson, writeJson } from '../utils/json.js'
 import { writeFileAtomic } from '../utils/fs.js'
 
-export async function patchMta(projectDirectory, { name, frontend, approuter, prodDb }) {
+export async function patchMta(
+  projectDirectory,
+  { name, removePostgresDeployment, patchRouterConfig },
+) {
   const mtaPath = join(projectDirectory, 'mta.yaml')
   const document = parseDocument(await readFile(mtaPath, 'utf8'))
-  if (prodDb === 'hana') removePostgresDeployment(document)
+  if (removePostgresDeployment) removePostgresDeploymentArtifacts(document)
+  else documentPostgresEntitlement(document)
   const names = renameMtaArtifacts(document, name)
   await writeFileAtomic(mtaPath, document.toString())
 
-  if (frontend !== 'none' && approuter) {
+  if (patchRouterConfig) {
     await patchRouter(join(projectDirectory, 'app', 'router', 'xs-app.json'))
   }
 
   return names
 }
 
-function removePostgresDeployment(document) {
+function documentPostgresEntitlement(document) {
+  const warning = 'PostgreSQL service plan depends on your BTP subaccount entitlement.'
+  const resources = document.get('resources')
+  for (const resource of resources?.items ?? []) {
+    if (resource.get('parameters', true)?.get('service', true)?.value !== 'postgresql-db') continue
+    if (resource.commentBefore?.includes(warning) || resources.commentBefore?.includes(warning))
+      continue
+    resource.commentBefore = resource.commentBefore
+      ? `${resource.commentBefore}\n ${warning}`
+      : ` ${warning}`
+  }
+}
+
+function removePostgresDeploymentArtifacts(document) {
   const modules = document.get('modules')
   const resources = document.get('resources')
   const postgresNames = new Set(

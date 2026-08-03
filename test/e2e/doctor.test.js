@@ -315,4 +315,25 @@ describe('doctor missing-tool paths', () => {
     expect(result.output).toContain('Docker is not installed')
     expect(result.output).not.toContain('Database for production?')
   })
+
+  it('offers the Docker continue flow when the Compose plugin is missing', async () => {
+    const path = await createBin({
+      npm: 'printf 10.0.0',
+      git: 'printf "git version 2.0.0"',
+      cds: 'printf "@sap/cds-dk (global)  10.0.0"',
+      mbt: 'printf "mbt 1.0.0"',
+      cf: 'if [ "$1" = "plugins" ]; then printf "multiapps 3.0.0"; else printf "cf version 8.0.0"; fi',
+      docker: 'if [ "$1" = "--version" ]; then printf "Docker version 1.0.0"; else exit 1; fi',
+    })
+
+    const result = await runCli(path, [
+      { prompt: 'Backend language?', input: '\r' },
+      { prompt: 'Database for local development?', input: '\u001b[B\r' },
+      { prompt: 'Continue without Docker?', input: 'n\r', end: true },
+    ])
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('Docker Compose plugin is unavailable')
+    expect(result.output).not.toContain('Database for production?')
+  })
 })

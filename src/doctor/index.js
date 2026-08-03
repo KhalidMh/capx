@@ -84,8 +84,13 @@ export async function runDoctor() {
 }
 
 export async function runDockerCheck() {
-  if ((await checkDocker()).ok) return true
+  const docker = await checkDocker()
+  if (docker.ok) return true
   const hint = await getInstallHint('docker')
-  console.error(`Docker is not installed. Install it with: ${hint}`)
+  const message =
+    docker.reason === 'missingCompose'
+      ? 'Docker Compose plugin is unavailable'
+      : 'Docker is not installed'
+  console.error(`${message}. Install it with: ${hint}`)
   return askToContinue('Continue without Docker?')
 }

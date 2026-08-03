@@ -96,10 +96,32 @@ describe('doctor checks', () => {
     expect(execute).toHaveBeenCalledWith('cf', ['plugins'], { timeout: 3000 })
   })
 
+  it('requires Docker and its Compose plugin with three-second timeouts', async () => {
+    const execute = vi.fn().mockResolvedValue({ stdout: 'Docker version 28.0.0' })
+
+    await expect(checkDocker({ execute })).resolves.toMatchObject({ ok: true })
+    expect(execute).toHaveBeenNthCalledWith(1, 'docker', ['--version'], { timeout: 3000 })
+    expect(execute).toHaveBeenNthCalledWith(2, 'docker', ['compose', 'version'], { timeout: 3000 })
+  })
+
+  it('reports Docker unavailable when its Compose plugin is missing', async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ stdout: 'Docker version 28.0.0' })
+      .mockRejectedValueOnce(Object.assign(new Error('missing compose'), { code: 'ENOENT' }))
+
+    await expect(checkDocker({ execute })).resolves.toMatchObject({
+      ok: false,
+      name: 'docker',
+      reason: 'missingCompose',
+    })
+  })
+
   it('reports a missing Docker executable', async () => {
     await expect(checkDocker({ execute: missing() })).resolves.toMatchObject({
       ok: false,
       name: 'docker',
+      reason: 'missingDocker',
     })
   })
 })

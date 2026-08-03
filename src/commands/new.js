@@ -1,5 +1,5 @@
 import { cancel, isCancel } from '@clack/prompts'
-import { buildPlan } from '../decision-matrix.js'
+import { buildPlan, buildPreliminaryPlan } from '../decision-matrix.js'
 import { runDockerCheck, runDoctor } from '../doctor/index.js'
 import { promptApprouter } from '../prompts/approuter.js'
 import { promptAuth } from '../prompts/auth.js'
@@ -15,6 +15,7 @@ import { runCdsAddFrontend } from '../steps/03-cds-add-frontend.js'
 import { patchCdsrc } from '../steps/04-patch-cdsrc.js'
 import { patchMta } from '../steps/05-patch-mta.js'
 import { writeExtras } from '../steps/06-write-extras.js'
+import { writeDocker } from '../steps/07-write-docker.js'
 import { writeStubs } from '../steps/08-write-stubs.js'
 
 function exitCancelled() {
@@ -45,7 +46,8 @@ export async function runNewCommand(name, options = {}) {
   if (isCancelled(lang)) return
   const devDb = await promptDevDb()
   if (isCancelled(devDb)) return
-  if (devDb === 'postgres' && !(await runDockerCheck())) return
+  const preliminaryPlan = buildPreliminaryPlan({ devDb })
+  if (preliminaryPlan.postgresDev && !(await runDockerCheck())) return
   const prodDb = await promptProdDb()
   if (isCancelled(prodDb)) return
   const auth = await promptAuth()
@@ -72,14 +74,25 @@ export async function runNewCommand(name, options = {}) {
     await validateTarget(projectName, options)
     await runCdsInit({ name: projectName, facets: plan.facets })
     await patchCdsrc(projectName, { ...inputs, name: projectName })
-    if (frontend !== 'none') {
+    if (plan.addFrontend) {
       await runCdsAddFrontend(projectName, plan)
     }
-    if (plan.approuter || prodDb === 'hana') {
-      await patchMta(projectName, { ...inputs, name: projectName, approuter: plan.approuter })
+    if (plan.patchMta) {
+      await patchMta(projectName, {
+        name: projectName,
+        removePostgresDeployment: plan.removePostgresDeployment,
+        patchRouterConfig: plan.patchRouter,
+      })
     }
     const needsCdsTest = await writeStubs(projectName, { ...inputs, name: projectName })
-    await writeExtras(projectName, { ...inputs, name: projectName, lang, needsCdsTest })
+    await writeExtras(projectName, {
+      ...inputs,
+      name: projectName,
+      lang,
+      postgresDev: plan.postgresScripts,
+      needsCdsTest,
+    })
+    if (plan.writeDocker) await writeDocker(projectName, { name: projectName })
   } catch (error) {
     console.error(error.message)
     process.exitCode = 1

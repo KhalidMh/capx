@@ -1,9 +1,19 @@
+export function buildPreliminaryPlan({ devDb }) {
+  const postgresDev = devDb === 'postgres'
+  return { postgresDev, writeDocker: postgresDev, postgresScripts: postgresDev }
+}
+
 export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter }) {
   const facets = []
   const postInitFacets = []
   const patches = ['.cdsrc.json']
   const promptForApprouter = auth === 'none' && frontend !== 'none'
   const resolvedApprouter = promptForApprouter ? approuter : auth !== 'none'
+  const preliminaryPlan = buildPreliminaryPlan({ devDb })
+  const addFrontend = frontend !== 'none'
+  const patchRouter = addFrontend && resolvedApprouter
+  const patchMta = resolvedApprouter || prodDb === 'hana' || prodDb === 'postgres'
+  const removePostgresDeployment = prodDb === 'hana'
 
   if (lang === 'ts') {
     facets.push('typescript')
@@ -27,9 +37,9 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
   if (resolvedApprouter) {
     facets.push('approuter', 'destination')
   }
-  if (frontend !== 'none') postInitFacets.push(frontend)
-  if (frontend !== 'none' && resolvedApprouter) postInitFacets.push('html5-repo')
-  if (frontend !== 'none' || prodDb === 'postgres') {
+  if (addFrontend) postInitFacets.push(frontend)
+  if (patchRouter) postInitFacets.push('html5-repo')
+  if (patchMta) {
     patches.push('mta.yaml')
   }
 
@@ -45,6 +55,9 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
     `srv/cat-service.${lang}`,
     'test/smoke.test.js',
   )
+  if (preliminaryPlan.writeDocker) {
+    patches.push('docker-compose.yml', '.env', '.cdsrc-private.json')
+  }
 
   const labels = {
     lang: { js: 'JavaScript (ESM)', ts: 'TypeScript' },
@@ -69,6 +82,13 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
     facets,
     postInitFacets,
     patches,
+    postgresDev: preliminaryPlan.postgresDev,
+    addFrontend,
+    patchMta,
+    patchRouter,
+    removePostgresDeployment,
+    writeDocker: preliminaryPlan.writeDocker,
+    postgresScripts: preliminaryPlan.postgresScripts,
     approuter: resolvedApprouter,
     promptForApprouter,
     summary: `You're about to create ${name} with:\n${summary}`,

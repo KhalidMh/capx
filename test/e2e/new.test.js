@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { parseDocument } from 'yaml'
 
 const cli = fileURLToPath(new URL('../../bin/capx.js', import.meta.url))
 let binDirectory
@@ -69,7 +70,10 @@ fi`,
         'cf',
         'if [ "$1" = "plugins" ]; then printf "multiapps 3.0.0"; else printf "cf version 8.0.0"; fi',
       ],
-      ['docker', 'printf "Docker version 1.0.0"'],
+      [
+        'docker',
+        'if [ "$1" = "--version" ]; then printf "Docker version 1.0.0"; elif [ "$1" = "compose" ] && [ "$2" = "version" ]; then printf "Docker Compose version 1.0.0"; else exit 1; fi',
+      ],
     ].map(async ([name, body]) => {
       const path = join(binDirectory, name)
       await writeFile(path, `#!/bin/sh\n${body}\n`)
@@ -329,6 +333,88 @@ describe('capx new Phase 3', () => {
       readFile(join(project, 'app', 'router', 'xs-app.json'), 'utf8'),
     ).rejects.toMatchObject({
       code: 'ENOENT',
+    })
+  })
+
+  it('patches a backend-only production PostgreSQL MTA and retains its deployment resource', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'backend-postgres-app'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\x1b[B\r'],
+        ['Authentication?', '\x1b[A\r'],
+        ['Frontend framework?', '\r'],
+        ['Proceed?', '\r'],
+      ],
+      {
+        CAPX_EXPECTED_CDS_NAME: 'backend-postgres-app',
+        CAPX_EXPECTED_CDS_FACETS: 'sqlite,postgres,mta,test,lint',
+      },
+    )
+
+    expect(result.code).toBe(0)
+    const mta = await readFile(join(workspace, 'backend-postgres-app', 'mta.yaml'), 'utf8')
+    expect(mta).toContain('name: backend-postgres-app-srv')
+    expect(mta).toContain('service: postgresql-db')
+    expect(mta).toContain('PostgreSQL service plan depends on your BTP subaccount entitlement')
+  })
+
+  it('generates a PostgreSQL development project with valid Compose semantics', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'postgres-app'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\x1b[B\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\x1b[A\r'],
+        ['Frontend framework?', '\r'],
+        ['Proceed?', '\r'],
+      ],
+      {
+        CAPX_EXPECTED_CDS_NAME: 'postgres-app',
+        CAPX_EXPECTED_CDS_FACETS: 'postgres,hana,mta,test,lint',
+      },
+    )
+
+    expect(result.code).toBe(0)
+    const project = join(workspace, 'postgres-app')
+    const compose = parseDocument(await readFile(join(project, 'docker-compose.yml'), 'utf8'))
+    expect(compose.errors).toEqual([])
+    expect(compose.toJS()).toEqual({
+      services: {
+        postgres: {
+          image: 'postgres:17-alpine',
+          container_name: 'postgres-app-postgres',
+          restart: 'unless-stopped',
+          environment: {
+            POSTGRES_DB: '${POSTGRES_DB:-postgres-app}',
+            POSTGRES_USER: '${POSTGRES_USER:-postgres}',
+            POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-postgres}',
+          },
+          ports: ['${POSTGRES_PORT:-5432}:5432'],
+          volumes: ['pg-data:/var/lib/postgresql/data'],
+        },
+      },
+      volumes: { 'pg-data': null },
+    })
+    await expect(readFile(join(project, '.env'), 'utf8')).resolves.toBe(`POSTGRES_DB=postgres-app
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_PORT=5432
+`)
+    const privateCdsrc = JSON.parse(await readFile(join(project, '.cdsrc-private.json'), 'utf8'))
+    expect(privateCdsrc.requires.db['[development]'].credentials).toMatchObject({
+      host: 'localhost',
+      port: 5432,
+      user: 'postgres',
+      password: 'postgres',
+      database: 'postgres-app',
+    })
+    const packageJson = JSON.parse(await readFile(join(project, 'package.json'), 'utf8'))
+    expect(packageJson.scripts).toMatchObject({
+      'db:up': 'docker compose up -d',
+      'db:down': 'docker compose down',
     })
   })
 

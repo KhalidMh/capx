@@ -15,7 +15,7 @@ const requiredScripts = {
 
 export async function writeExtras(
   projectDirectory,
-  { name, lang, devDb, prodDb, auth, needsCdsTest = false },
+  { name, lang, devDb, prodDb, auth, postgresDev = false, needsCdsTest = false },
 ) {
   await Promise.all([
     writeFileAtomic(join(projectDirectory, '.prettierrc'), await template('prettierrc.json')),
@@ -26,7 +26,7 @@ export async function writeExtras(
     ),
   ])
   await patchGitignore(projectDirectory)
-  await patchPackage(projectDirectory, { lang, needsCdsTest })
+  await patchPackage(projectDirectory, { lang, postgresDev, needsCdsTest })
   if (lang === 'ts') await patchTsconfig(projectDirectory)
 }
 
@@ -44,12 +44,16 @@ async function patchGitignore(projectDirectory) {
   await writeFileAtomic(path, `${current.replace(/\s*$/, '')}\n${additions.join('\n')}\n`)
 }
 
-async function patchPackage(projectDirectory, { lang, needsCdsTest }) {
+async function patchPackage(projectDirectory, { lang, postgresDev, needsCdsTest }) {
   const path = join(projectDirectory, 'package.json')
   const packageJson = await readJson(path)
   packageJson.scripts ??= {}
   for (const [script, command] of Object.entries(requiredScripts)) {
     packageJson.scripts[script] ??= command
+  }
+  if (postgresDev) {
+    packageJson.scripts['db:up'] ??= 'docker compose up -d'
+    packageJson.scripts['db:down'] ??= 'docker compose down'
   }
   packageJson.devDependencies ??= {}
   packageJson.devDependencies.prettier ??= '^3'

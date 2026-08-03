@@ -14,6 +14,38 @@ function run(command, args, cwd) {
   return spawnSync(command, args, { cwd, encoding: 'utf8' })
 }
 
+function watch(project) {
+  const child = spawn('npm', ['run', 'watch'], {
+    cwd: project,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  return new Promise((resolve, reject) => {
+    let output = ''
+    const timeout = setTimeout(() => reject(new Error(`cds watch did not start: ${output}`)), 30000)
+    const onData = (chunk) => {
+      output += chunk
+      const match = output.match(/server listening on \{ url: '([^']+)'/)
+      if (!match) return
+      clearTimeout(timeout)
+      resolve({ child, output, url: match[1] })
+    }
+    child.stdout.on('data', onData)
+    child.stderr.on('data', onData)
+    child.on('error', reject)
+  })
+}
+
+async function expectWatch(project) {
+  const running = await watch(project)
+  try {
+    const response = await fetch(`${running.url}/odata/v4/cat`)
+    expect(response.status).toBe(200)
+  } finally {
+    process.kill(-running.child.pid, 'SIGTERM')
+  }
+}
+
 function runCapx(directory, name, { lang, devDb, prodDb, auth, frontend }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [join(process.cwd(), 'bin', 'capx.js'), 'new', name], {
@@ -99,6 +131,8 @@ describe.skipIf(!enabled)('required real CAP DK 10 MTA integration', () => {
     const packageJson = JSON.parse(await readFile(join(project, 'package.json'), 'utf8'))
     expect(packageJson.devDependencies['@cap-js/cds-types']).toBe('^0.18.0')
     expect(run('npm', ['install'], project).status).toBe(0)
+    expect(run('npm', ['test'], project).status).toBe(0)
+    await expectWatch(project)
     expect(run('npm', ['ls', '@cap-js/cds-types'], project).status).toBe(0)
     const typecheck = run('npx', ['tsc', '--noEmit'], project)
     expect(typecheck.status, `${typecheck.stdout}\n${typecheck.stderr}`).toBe(0)
@@ -127,6 +161,9 @@ describe.skipIf(!enabled)('required real CAP DK 10 MTA integration', () => {
     expect(
       mta.resources.find((resource) => resource.type === 'com.sap.xs.hdi-container').name,
     ).toBe(`${name}-db`)
+    await expect(readFile(join(project, 'xs-security.json'), 'utf8')).resolves.toContain(
+      '$XSAPPNAME',
+    )
 
     const build = run(mbt, ['build'], project)
     expect(build.status, `${build.stdout}\n${build.stderr}`).toBe(0)
@@ -149,6 +186,8 @@ describe.skipIf(!enabled)('required real CAP DK 10 MTA integration', () => {
     const project = join(directory, name)
 
     expect(run('npm', ['install'], project).status).toBe(0)
+    expect(run('npm', ['test'], project).status).toBe(0)
+    await expectWatch(project)
     expect(run('npm', ['install'], join(project, 'app', 'frontend')).status).toBe(0)
     expect(run('npm', ['install'], join(project, 'app', 'router')).status).toBe(0)
 
@@ -195,8 +234,11 @@ describe.skipIf(!enabled)('required real CAP DK 10 MTA integration', () => {
     const project = join(directory, name)
 
     expect(run('npm', ['install'], project).status).toBe(0)
+    expect(run('npm', ['test'], project).status).toBe(0)
+    await expectWatch(project)
     expect(run('npm', ['install'], join(project, 'app', 'frontend')).status).toBe(0)
     expect(run('npm', ['install'], join(project, 'app', 'router')).status).toBe(0)
+    expect(run('npm', ['run', '--prefix', 'app/frontend', 'build'], project).status).toBe(0)
 
     const mta = parseDocument(await readFile(join(project, 'mta.yaml'), 'utf8')).toJS()
     expect(
@@ -221,6 +263,9 @@ describe.skipIf(!enabled)('required real CAP DK 10 MTA integration', () => {
     )
     expect(mta.resources.find((resource) => resource.parameters?.service === 'xsuaa').name).toBe(
       `${name}-auth`,
+    )
+    await expect(readFile(join(project, 'xs-security.json'), 'utf8')).resolves.toContain(
+      '$XSAPPNAME',
     )
 
     const build = run(mbt, ['build'], project)

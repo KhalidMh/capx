@@ -36,6 +36,12 @@ export async function patchCdsrc(projectDirectory, { name, devDb, prodDb, auth }
   const cdsrcPath = join(projectDirectory, '.cdsrc.json')
   const cdsrc = await readJson(cdsrcPath)
   deepMerge(cdsrc, {
+    '[development]': {
+      requires: {
+        // CAP 10 queues persist SQLite messages by default; keep generated local projects ephemeral.
+        queue: false,
+      },
+    },
     requires: {
       db: {
         '[development]':

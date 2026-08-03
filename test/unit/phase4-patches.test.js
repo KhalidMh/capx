@@ -66,6 +66,7 @@ describe('Phase 4 patches', () => {
             auth: { '[development]': { kind: 'mocked' }, kind: 'xsuaa' },
           },
           feature: true,
+          '[development]': { requires: { queue: false } },
         },
         null,
         2,
@@ -89,6 +90,21 @@ describe('Phase 4 patches', () => {
       credentials: { database: 'watch-project.sqlite' },
     })
     expect(cdsrc.requires.db['[production]']).toEqual({ kind: 'hana' })
+  })
+
+  it('disables CAP event queues only for development', async () => {
+    const directory = await project()
+
+    await patchCdsrc(directory, {
+      devDb: 'sqlite',
+      prodDb: 'hana',
+      auth: 'none',
+      name: 'watch-project',
+    })
+
+    const cdsrc = JSON.parse(await readFile(join(directory, '.cdsrc.json'), 'utf8'))
+    expect(cdsrc['[development]'].requires.queue).toBe(false)
+    expect(cdsrc['[production]']).toBeUndefined()
   })
 
   it('adds only missing Admin and User XSUAA declarations', async () => {

@@ -3,6 +3,29 @@
   "version": "0.1.0",
   "description": "An opinionated installer for SAP CAP Node.js projects.",
   "license": "MIT",
+  "keywords": [
+    "sap-cap",
+    "cap",
+    "cds",
+    "cloud-application-programming",
+    "scaffolding"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KhalidMh/capx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KhalidMh/capx/issues"
+  },
+  "homepage": "https://github.com/KhalidMh/capx#readme",
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -19,6 +42,7 @@
     "test:frontend:required": "node test/e2e/run-required-frontend.js",
     "test:mta:required": "node test/e2e/run-required-mta.js",
     "test:docker:required": "node test/e2e/run-required-docker.js",
+    "test:vue-no-auth:required": "node test/e2e/run-required-vue-no-auth.js",
     "test:install-git:required": "node test/e2e/run-required-install-git.js"
   },
   "dependencies": {

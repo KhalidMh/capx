@@ -62,7 +62,7 @@ function runNew(name = 'watch-project', language = 'js') {
 async function watchUntilListening(project) {
   const subprocess = execa(npm, ['run', 'watch'], { cwd: project, all: true, detached: true })
   try {
-    await new Promise((resolve, reject) => {
+    const { output, url } = await new Promise((resolve, reject) => {
       let watchOutput = ''
       const timeout = setTimeout(
         () => reject(new Error(`cds watch did not start: ${watchOutput}`)),
@@ -70,12 +70,16 @@ async function watchUntilListening(project) {
       )
       subprocess.all.on('data', (chunk) => {
         watchOutput += chunk
-        if (!/server listening|listening on/i.test(watchOutput)) return
+        const match = watchOutput.match(/server listening on \{ url: '([^']+)'/)
+        if (!match) return
         clearTimeout(timeout)
-        resolve()
+        resolve({ output: watchOutput, url: match[1] })
       })
       subprocess.catch(reject)
     })
+    const response = await fetch(`${url}/odata/v4/cat`)
+    expect(response.status).toBe(200)
+    return output
   } finally {
     process.kill(-subprocess.pid, 'SIGTERM')
     await subprocess.catch(() => undefined)
@@ -140,7 +144,8 @@ suite('real CAP 10 watch', () => {
     await execa(npm, ['install'], { cwd: join(workspace, 'watch-project') })
     await execa(npm, ['test'], { cwd: join(workspace, 'watch-project') })
 
-    await watchUntilListening(join(workspace, 'watch-project'))
+    const watchOutput = await watchUntilListening(join(workspace, 'watch-project'))
+    expect(watchOutput).not.toContain('cds_outbox_Messages')
   }, 95000)
 
   it('generates a TypeScript project with a JavaScript smoke test and starts cds watch', async () => {

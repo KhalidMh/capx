@@ -12,12 +12,16 @@ function run(command, args, cwd, env = {}) {
   return spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, ...env } })
 }
 
-function runCapx(directory, name, env) {
+function runCapx(directory, name, env, args = []) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [join(process.cwd(), 'bin', 'capx.js'), 'new', name], {
-      cwd: directory,
-      env,
-    })
+    const child = spawn(
+      process.execPath,
+      [join(process.cwd(), 'bin', 'capx.js'), 'new', name, ...args],
+      {
+        cwd: directory,
+        env,
+      },
+    )
     let output = ''
     const answers = [
       ['Backend language?', '\r'],
@@ -123,5 +127,13 @@ describe.skipIf(!enabled)('required real CAP DK 10 install and Git integration',
     expect(
       run('git', ['ls-files', '--error-unmatch', '.cdsrc-private.json'], project, env).status,
     ).toBe(1)
+
+    const noForce = await runCapx(directory, 'install-git-app', env)
+    expect(noForce.status).toBe(1)
+    expect(noForce.output).toContain('Directory exists')
+
+    const force = await runCapx(directory, 'install-git-app', env, ['--force'])
+    expect(force.status, force.output).toBe(0)
+    await access(join(project, 'package.json'))
   }, 480000)
 })

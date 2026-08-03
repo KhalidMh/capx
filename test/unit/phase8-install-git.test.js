@@ -35,6 +35,28 @@ describe('installDependencies', () => {
     ).rejects.toBe(failure)
     expect(exec).toHaveBeenCalledTimes(1)
   })
+
+  it('stops after root installation when interrupted before frontend installation', async () => {
+    let interrupted = false
+    const exec = vi.fn(async () => {
+      interrupted = true
+    })
+
+    await expect(
+      installDependencies(
+        '/tmp/bookshop',
+        { addFrontend: true, approuter: true },
+        {
+          exec,
+          isInterrupted: () => interrupted,
+        },
+      ),
+    ).rejects.toThrow('Interrupted by SIGINT')
+
+    expect(exec.mock.calls).toEqual([
+      ['npm', ['install'], { cwd: '/tmp/bookshop', stdio: 'inherit' }],
+    ])
+  })
 })
 
 describe('initializeGit', () => {
@@ -72,6 +94,21 @@ describe('initializeGit', () => {
       'Git initialization failed; project files remain available for a manual commit. Author identity unknown',
     )
   })
+
+  it('stops after git init when interrupted before staging or committing', async () => {
+    let interrupted = false
+    const exec = vi.fn(async () => {
+      interrupted = true
+    })
+    const warn = vi.fn()
+
+    await expect(
+      initializeGit('/tmp/bookshop', { exec, isInterrupted: () => interrupted, warn }),
+    ).rejects.toThrow('Interrupted by SIGINT')
+
+    expect(exec.mock.calls).toEqual([['git', ['init'], { cwd: '/tmp/bookshop', stdio: 'inherit' }]])
+    expect(warn).not.toHaveBeenCalled()
+  })
 })
 
 describe('runProjectSteps', () => {
@@ -99,8 +136,15 @@ describe('runProjectSteps', () => {
 
     await runProjectSteps('bookshop', inputs, plan, {}, projectSteps)
 
-    expect(projectSteps.installDependencies).toHaveBeenCalledWith('bookshop', plan)
-    expect(projectSteps.initializeGit).toHaveBeenCalledWith('bookshop')
+    expect(projectSteps.installDependencies).toHaveBeenCalledWith(
+      'bookshop',
+      plan,
+      expect.objectContaining({ isInterrupted: expect.any(Function) }),
+    )
+    expect(projectSteps.initializeGit).toHaveBeenCalledWith(
+      'bookshop',
+      expect.objectContaining({ isInterrupted: expect.any(Function) }),
+    )
     expect(projectSteps.installDependencies.mock.invocationCallOrder[0]).toBeGreaterThan(
       projectSteps.writeExtras.mock.invocationCallOrder[0],
     )

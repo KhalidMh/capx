@@ -1,4 +1,4 @@
-import { cancel, isCancel } from '@clack/prompts'
+import { cancel, confirm, isCancel } from '@clack/prompts'
 import { buildPlan, buildPreliminaryPlan } from '../decision-matrix.js'
 import { runDockerCheck, runDoctor } from '../doctor/index.js'
 import { promptApprouter } from '../prompts/approuter.js'
@@ -19,6 +19,7 @@ import { writeDocker } from '../steps/07-write-docker.js'
 import { writeStubs } from '../steps/08-write-stubs.js'
 import { installDependencies } from '../steps/09-install-deps.js'
 import { initializeGit } from '../steps/10-git-init.js'
+import { appendProgress, removeProgress, rollbackProject } from '../utils/rollback.js'
 
 function exitCancelled() {
   cancel('Cancelled')
@@ -99,33 +100,146 @@ export async function runProjectSteps(
   plan,
   options,
   steps = defaultProjectSteps,
-  { printError = console.error } = {},
+  {
+    confirm: promptRollback = confirm,
+    printError = console.error,
+    progress = { appendProgress, removeProgress, rollbackProject },
+    signalEmitter = process,
+    warn = console.warn,
+  } = {},
 ) {
-  await steps.validateTarget(projectName, options)
-  await steps.runCdsInit({ name: projectName, facets: plan.facets })
-  await steps.patchCdsrc(projectName, { ...inputs, name: projectName })
-  if (plan.addFrontend) await steps.runCdsAddFrontend(projectName, plan)
-  if (plan.patchMta) {
-    await steps.patchMta(projectName, {
-      name: projectName,
-      removePostgresDeployment: plan.removePostgresDeployment,
-      patchRouterConfig: plan.patchRouter,
-    })
+  let currentStep = 'validate target'
+  let currentPolicy = 'validate'
+  let projectMayExist = false
+  let progressStarted = false
+  let progressRemovedBeforeGit = false
+  let interrupted = false
+  const interruptError = new Error('Interrupted by SIGINT')
+
+  const onSigint = () => {
+    if (interrupted) return
+    interrupted = { step: currentStep }
   }
-  const needsCdsTest = await steps.writeStubs(projectName, { ...inputs, name: projectName })
-  await steps.writeExtras(projectName, {
-    ...inputs,
-    name: projectName,
-    lang: inputs.lang,
-    postgresDev: plan.postgresScripts,
-    needsCdsTest,
-  })
-  if (plan.writeDocker) await steps.writeDocker(projectName, { name: projectName })
+  signalEmitter.on('SIGINT', onSigint)
+
+  async function runStep(name, task, { log = true, policy = 'scaffold' } = {}) {
+    currentStep = name
+    currentPolicy = policy
+    try {
+      if (log && progressStarted) {
+        currentPolicy = 'cleanup'
+        await progress.appendProgress(projectName, name)
+        currentPolicy = policy
+        if (interrupted) throw interruptError
+      }
+      await task()
+    } catch (error) {
+      if (interrupted) throw interruptError
+      throw error
+    }
+    if (interrupted) throw interruptError
+  }
+
+  async function handleInterrupt() {
+    const rollback = await promptRollback({ message: 'Rollback? [Y/n]', initialValue: true })
+    if (rollback === true || isCancel(rollback)) await progress.rollbackProject(projectName)
+    else if (progressRemovedBeforeGit) await progress.appendProgress(projectName, 'initialize Git')
+    throw interruptError
+  }
+
   try {
-    await steps.installDependencies(projectName, plan)
+    await runStep('validate target', () => steps.validateTarget(projectName, options), {
+      log: false,
+      policy: 'validate',
+    })
+    progressStarted = true
+    projectMayExist = true
+    await runStep('cds init', () => steps.runCdsInit({ name: projectName, facets: plan.facets }))
+    await runStep('patch .cdsrc.json', () =>
+      steps.patchCdsrc(projectName, { ...inputs, name: projectName }),
+    )
+    if (plan.addFrontend) {
+      await runStep(
+        'add frontend',
+        () =>
+          steps.runCdsAddFrontend(projectName, plan, { isInterrupted: () => Boolean(interrupted) }),
+        { policy: 'frontend' },
+      )
+    }
+    if (plan.patchMta) {
+      await runStep('patch MTA', () =>
+        steps.patchMta(projectName, {
+          name: projectName,
+          removePostgresDeployment: plan.removePostgresDeployment,
+          patchRouterConfig: plan.patchRouter,
+        }),
+      )
+    }
+    let needsCdsTest
+    await runStep('write stubs', async () => {
+      needsCdsTest = await steps.writeStubs(projectName, { ...inputs, name: projectName })
+    })
+    await runStep('write project extras', () =>
+      steps.writeExtras(projectName, {
+        ...inputs,
+        name: projectName,
+        lang: inputs.lang,
+        postgresDev: plan.postgresScripts,
+        needsCdsTest,
+      }),
+    )
+    if (plan.writeDocker) {
+      await runStep('write Docker configuration', () =>
+        steps.writeDocker(projectName, { name: projectName }),
+      )
+    }
+    await runStep(
+      'npm install',
+      () =>
+        steps.installDependencies(projectName, plan, { isInterrupted: () => Boolean(interrupted) }),
+      { policy: 'install' },
+    )
+
+    // Record Git progress before removing the transient log so git add . cannot commit it.
+    await runStep(
+      'record Git progress',
+      () => progress.appendProgress(projectName, 'initialize Git'),
+      {
+        log: false,
+        policy: 'cleanup',
+      },
+    )
+    progressRemovedBeforeGit = true
+    await runStep('remove progress log', () => progress.removeProgress(projectName), {
+      log: false,
+      policy: 'cleanup',
+    })
+    progressStarted = false
+    await runStep(
+      'initialize Git',
+      () => steps.initializeGit(projectName, { isInterrupted: () => Boolean(interrupted) }),
+      { log: false, policy: 'git' },
+    )
   } catch (error) {
-    printError(`Install failed. Resume with: cd ${projectName} && npm install`)
+    if (error === interruptError) await handleInterrupt()
+    if (currentPolicy === 'validate') throw error
+    if (currentPolicy === 'install') {
+      printError(`Install failed. Resume with: cd ${projectName} && npm install`)
+      throw error
+    }
+    if (currentPolicy === 'git') {
+      warn(`Git initialization failed; project files remain available. ${error.message}`)
+      return
+    }
+
+    printError(`Step failed: ${currentStep}`)
+    if (currentPolicy === 'scaffold' && (options.noRollback || options.rollback === false)) {
+      printError(`Partial project retained. Resume from the failed step in: ${projectName}`)
+    } else if (projectMayExist) {
+      await progress.rollbackProject(projectName)
+    }
     throw error
+  } finally {
+    signalEmitter.removeListener('SIGINT', onSigint)
   }
-  await steps.initializeGit(projectName)
 }

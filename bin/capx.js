@@ -11,6 +11,7 @@ program
   .command('new')
   .argument('[project-name]')
   .option('--force', 'overwrite an existing target directory')
+  .option('--no-rollback', 'retain partially generated files after a failed scaffold step')
   .action(async (name, options) => {
     await runNewCommand(name, options)
   })

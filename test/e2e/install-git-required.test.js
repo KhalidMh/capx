@@ -119,6 +119,7 @@ describe.skipIf(!enabled)('required real CAP DK 10 install and Git integration',
     )
     expect(run('git', ['check-ignore', '.env', '.cdsrc-private.json'], project, env).status).toBe(0)
     expect(run('git', ['ls-files', '--error-unmatch', '.env'], project, env).status).toBe(1)
+    expect(run('git', ['ls-files', '--error-unmatch', '.capx-log'], project, env).status).toBe(1)
     expect(
       run('git', ['ls-files', '--error-unmatch', '.cdsrc-private.json'], project, env).status,
     ).toBe(1)

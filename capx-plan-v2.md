@@ -817,15 +817,15 @@ test('service smoke test', () => {
 |---|---|
 | Prereq missing, user declines install | Exit 1, clear message, no IO done |
 | cds-dk major < 10, user declines upgrade | Exit 1. No degraded path |
-| `cds init` non-zero | Nothing to clean; print stderr, exit 1 |
+| `cds init` non-zero | Print stderr and exit 1. If the command created a partial target, default cleanup removes it; `--no-rollback` retains it with resume guidance. |
 | `cds add <frontend>` fails | Rollback whole dir (project is half-built and not useful) |
 | Any patch step fails | Default: `rm -rf <project>`, name the failed step, exit 1. `--no-rollback` leaves state + prints resume instructions |
 | `npm install` fails | **No rollback** — usually transient network. Print `cd <project> && npm install`, exit 1 |
 | Git init/commit fails | Warn, skip, finish successfully |
 | Ctrl-C during prompts | Exit 1, no IO done |
-| Ctrl-C during execution | Trap SIGINT, finish the current atomic step, ask `"Rollback? [Y/n]"` |
+| Ctrl-C during execution | Trap SIGINT, finish the current atomic step, ask `"Rollback? [Y/n]"`, then act on the answer. The Clack prompt uses `initialValue: true`, so its buttons retain the default rollback choice. The signal handler only records the interruption; the prompt occurs after the in-flight atomic step settles. |
 
-Progress is appended to `<project>/.capx-log` during the run and deleted on success. A future `--debug` flag will retain it.
+Progress is appended to `<project>/.capx-log` during the run and deleted on success. The Git phase is recorded before the log is removed so `git add .` cannot include it in the initial commit. A future `--debug` flag will retain it.
 
 ---
 

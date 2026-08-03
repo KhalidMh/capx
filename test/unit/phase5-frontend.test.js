@@ -71,6 +71,25 @@ describe('Phase 5 frontend orchestration', () => {
       ['cds', ['add', 'react', '--into', 'frontend'], { cwd: '/tmp/bookshop', stdio: 'inherit' }],
     ])
   })
+
+  it('stops before the next frontend facet after an interrupt', async () => {
+    let interrupted = false
+    const exec = vi.fn(async () => {
+      interrupted = true
+    })
+
+    await expect(
+      runCdsAddFrontend(
+        '/tmp/bookshop',
+        { postInitFacets: ['vue', 'html5-repo'] },
+        { exec, isInterrupted: () => interrupted },
+      ),
+    ).rejects.toThrow('Interrupted by SIGINT')
+
+    expect(exec.mock.calls).toEqual([
+      ['cds', ['add', 'vue', '--into', 'frontend'], { cwd: '/tmp/bookshop', stdio: 'inherit' }],
+    ])
+  })
 })
 
 describe('patchMta', () => {

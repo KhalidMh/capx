@@ -19,7 +19,14 @@ beforeAll(async () => {
   cdsCallsFile = join(workspace, 'cds-calls')
   await Promise.all(
     [
-      ['npm', 'printf 10.0.0'],
+      [
+        'npm',
+        `if [ "$1" = "install" ] && [ "$CAPX_NPM_FAIL" = "1" ]; then
+  printf 'simulated npm install failure\n' >&2
+  exit 1
+fi
+printf 10.0.0`,
+      ],
       ['git', 'printf "git version 2.0.0"'],
       [
         'cds',
@@ -32,6 +39,11 @@ elif [ "$1" = "init" ]; then
   printf '%s\n' "$@" > "$CAPX_CDS_INVOCATION_FILE"
   printf 'init %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
   mkdir "$2"
+  if [ "$CAPX_CDS_FAIL_INIT" = "1" ]; then
+    printf 'partial\n' > "$2/.partial"
+    printf 'simulated cds init failure\n' >&2
+    exit 1
+  fi
   printf '{"name":"%s","type":"module","dependencies":{"@sap/cds":"^10.0.0"}}' "$2" > "$2/package.json"
   if printf '%s' "$5" | grep -q hana; then
     printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n    requires:\n      - name: generated-db\n  - name: generated-db-deployer\n    type: hdb\n    path: gen/db\n    requires:\n      - name: generated-db\n' > "$2/mta.yaml"
@@ -53,10 +65,18 @@ elif [ "$1" = "init" ]; then
     printf '  - name: generated-postgres\n    type: org.cloudfoundry.managed-service\n    parameters:\n      service: postgresql-db\n' >> "$2/mta.yaml"
   fi
 elif [ "$1" = "add" ] && { [ "$2" = "vue" ] || [ "$2" = "react" ]; } && [ "$3" = "--into" ] && [ "$4" = "frontend" ]; then
+  if [ "$CAPX_CDS_FAIL_FRONTEND" = "1" ]; then
+    printf 'simulated frontend failure\n' >&2
+    exit 1
+  fi
   printf 'add %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
   mkdir -p app/frontend
   printf '{"scripts":{"build":"vite build"}}' > app/frontend/package.json
 elif [ "$1" = "add" ] && [ "$2" = "html5-repo" ]; then
+  if [ "$CAPX_CDS_FAIL_HTML5_REPO" = "1" ]; then
+    printf 'simulated html5-repo failure\n' >&2
+    exit 1
+  fi
   printf 'add %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
   mkdir -p app/router
   printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n  - name: generated-frontend\n    type: html5\n    path: app/frontend\n  - name: generated-router\n    type: approuter.nodejs\n    path: app/router\nresources: []\n' > mta.yaml
@@ -121,7 +141,7 @@ function runCli(args, onOutput, env = {}) {
   })
 }
 
-function runNew(name, { force = false, validateCds = false } = {}) {
+function runNew(name, { force = false, validateCds = false, env = {} } = {}) {
   const args = [cli, 'new', name]
   if (force) args.push('--force')
   return runPromptedNew(
@@ -134,9 +154,12 @@ function runNew(name, { force = false, validateCds = false } = {}) {
       ['Frontend framework?', '\r'],
       ['Proceed?', '\r'],
     ],
-    validateCds
-      ? { CAPX_EXPECTED_CDS_NAME: name, CAPX_EXPECTED_CDS_FACETS: 'sqlite,hana,mta,test,lint' }
-      : {},
+    {
+      ...env,
+      ...(validateCds
+        ? { CAPX_EXPECTED_CDS_NAME: name, CAPX_EXPECTED_CDS_FACETS: 'sqlite,hana,mta,test,lint' }
+        : {}),
+    },
   )
 }
 
@@ -425,5 +448,101 @@ POSTGRES_PORT=5432
 
     expect(result.code).toBe(1)
     expect(result.output).toContain('Cancelled')
+  })
+
+  it('removes a partial target when cds init fails', async () => {
+    const result = await runNew('failed-init', {
+      validateCds: false,
+      env: { CAPX_CDS_FAIL_INIT: '1' },
+    })
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('simulated cds init failure')
+    await expect(
+      readFile(join(workspace, 'failed-init', '.partial'), 'utf8'),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('retains a partial target from cds init when --no-rollback is given', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'retained-init', '--no-rollback'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\x1b[A\r'],
+        ['Frontend framework?', '\r'],
+        ['Proceed?', '\r'],
+      ],
+      { CAPX_CDS_FAIL_INIT: '1' },
+    )
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('Partial project retained. Resume from the failed step')
+    await expect(readFile(join(workspace, 'retained-init', '.partial'), 'utf8')).resolves.toBe(
+      'partial\n',
+    )
+  })
+
+  it('rolls back the whole project when the frontend CDS add fails', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'failed-frontend'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\r'],
+        ['Frontend framework?', '\x1b[B\r'],
+        ['Proceed?', '\r'],
+      ],
+      { CAPX_CDS_FAIL_FRONTEND: '1' },
+    )
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('Step failed: add frontend')
+    await expect(
+      readFile(join(workspace, 'failed-frontend', 'package.json'), 'utf8'),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('rolls back the whole project when html5-repo fails after the frontend add', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'failed-html5-repo'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\r'],
+        ['Frontend framework?', '\x1b[B\r'],
+        ['Proceed?', '\r'],
+      ],
+      { CAPX_CDS_FAIL_HTML5_REPO: '1' },
+    )
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('simulated html5-repo failure')
+    expect(result.output).toContain('Step failed: add frontend')
+    await expect(
+      readFile(join(workspace, 'failed-html5-repo', 'package.json'), 'utf8'),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
+  it('retains a project and progress log when npm install fails', async () => {
+    const result = await runNew('failed-install', {
+      env: { CAPX_NPM_FAIL: '1' },
+    })
+
+    expect(result.code).toBe(1)
+    expect(result.output).toContain('simulated npm install failure')
+    expect(result.output).toContain('Install failed. Resume with: cd failed-install && npm install')
+    await expect(
+      readFile(join(workspace, 'failed-install', '.capx-log'), 'utf8'),
+    ).resolves.toContain('npm install')
   })
 })

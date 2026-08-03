@@ -84,7 +84,8 @@ describe('buildPlan', () => {
         approuter: true,
       }),
     ).toMatchObject({
-      facets: ['postgres', 'ias', 'approuter', 'destination', 'html5-repo', 'mta', 'test', 'lint'],
+      facets: ['postgres', 'ias', 'approuter', 'destination', 'mta', 'test', 'lint'],
+      postInitFacets: ['react', 'html5-repo'],
       patches: [
         '.cdsrc.json',
         'mta.yaml',

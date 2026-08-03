@@ -9,11 +9,13 @@ const cli = fileURLToPath(new URL('../../bin/capx.js', import.meta.url))
 let binDirectory
 let workspace
 let cdsInvocationFile
+let cdsCallsFile
 
 beforeAll(async () => {
   binDirectory = await mkdtemp(join(tmpdir(), 'capx-bin-'))
   workspace = await mkdtemp(join(tmpdir(), 'capx-workspace-'))
   cdsInvocationFile = join(workspace, 'cds-invocation')
+  cdsCallsFile = join(workspace, 'cds-calls')
   await Promise.all(
     [
       ['npm', 'printf 10.0.0'],
@@ -27,8 +29,22 @@ elif [ "$1" = "init" ]; then
     exit 1
   fi
   printf '%s\n' "$@" > "$CAPX_CDS_INVOCATION_FILE"
+  printf 'init %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
   mkdir "$2"
   printf '{"name":"%s","type":"module","dependencies":{"@sap/cds":"^10.0.0"}}' "$2" > "$2/package.json"
+  if printf '%s' "$5" | grep -q approuter; then
+    mkdir -p "$2/app/router"
+    printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n  - name: generated-router\n    type: approuter.nodejs\n    path: app/router\nresources: []\n' > "$2/mta.yaml"
+  fi
+elif [ "$1" = "add" ] && { [ "$2" = "vue" ] || [ "$2" = "react" ]; } && [ "$3" = "--into" ] && [ "$4" = "frontend" ]; then
+  printf 'add %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
+  mkdir -p app/frontend
+  printf '{"scripts":{"build":"vite build"}}' > app/frontend/package.json
+elif [ "$1" = "add" ] && [ "$2" = "html5-repo" ]; then
+  printf 'add %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
+  mkdir -p app/router
+  printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n  - name: generated-frontend\n    type: html5\n    path: app/frontend\n  - name: generated-router\n    type: approuter.nodejs\n    path: app/router\nresources: []\n' > mta.yaml
+  printf '{"routes":[{"source":"^(.*)$","localDir":"resources"}]}' > app/router/xs-app.json
 else
   exit 1
 fi`,
@@ -62,6 +78,7 @@ function runCli(args, onOutput, env = {}) {
         ...process.env,
         ...env,
         CAPX_CDS_INVOCATION_FILE: cdsInvocationFile,
+        CAPX_CDS_CALLS_FILE: cdsCallsFile,
         PATH: `${binDirectory}:${process.env.PATH}`,
       },
     })
@@ -214,6 +231,59 @@ describe('capx new Phase 3', () => {
     expect(result.output).toContain('• Approuter:   Yes (auto)')
     expect(result.output).toContain('• Deployment:  MTA → Cloud Foundry')
     expect(result.output.indexOf('• Backend:')).toBeLessThan(result.output.indexOf('Proceed?'))
+  })
+
+  it('adds frontend before html5-repo and patches the generated MTA and approuter', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'frontend-app'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\r'],
+        ['Frontend framework?', '\x1b[B\r'],
+        ['Proceed?', '\r'],
+      ],
+    )
+
+    expect(result.code).toBe(0)
+    await expect(readFile(cdsCallsFile, 'utf8')).resolves.toMatch(
+      /init frontend-app --nodejs --add sqlite,hana,xsuaa,approuter,destination,mta,test,lint\nadd add vue --into frontend\nadd add html5-repo\n$/,
+    )
+    const mta = await readFile(join(workspace, 'frontend-app', 'mta.yaml'), 'utf8')
+    expect(mta).toContain('name: frontend-app-srv')
+    expect(mta).toContain('name: frontend-app-frontend')
+    expect(mta).toContain('name: frontend-app-approuter')
+    const router = JSON.parse(
+      await readFile(join(workspace, 'frontend-app', 'app', 'router', 'xs-app.json'), 'utf8'),
+    )
+    expect(router.routes).toContainEqual(
+      expect.objectContaining({ source: '^/odata/(.*)$', destination: 'srv-api' }),
+    )
+    expect(router.routes).toContainEqual(
+      expect.objectContaining({ source: '^(.*)$', service: 'html5-apps-repo-rt' }),
+    )
+  })
+
+  it('patches the MTA for an approuter-only project without adding frontend facets', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'router-only-app'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\r'],
+        ['Frontend framework?', '\r'],
+        ['Proceed?', '\r'],
+      ],
+    )
+
+    expect(result.code).toBe(0)
+    const mta = await readFile(join(workspace, 'router-only-app', 'mta.yaml'), 'utf8')
+    expect(mta).toContain('name: router-only-app-approuter')
+    await expect(readFile(cdsCallsFile, 'utf8')).resolves.not.toMatch(
+      /router-only-app.*add (vue|react|html5-repo)/,
+    )
   })
 
   it('exits 1 with Cancelled when a prompt is cancelled', async () => {

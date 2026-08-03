@@ -1,5 +1,6 @@
 export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter }) {
   const facets = []
+  const postInitFacets = []
   const patches = ['.cdsrc.json']
   const promptForApprouter = auth === 'none' && frontend !== 'none'
   const resolvedApprouter = promptForApprouter ? approuter : auth !== 'none'
@@ -25,10 +26,9 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
   }
   if (resolvedApprouter) {
     facets.push('approuter', 'destination')
-    if (frontend !== 'none') {
-      facets.push('html5-repo')
-    }
   }
+  if (frontend !== 'none') postInitFacets.push(frontend)
+  if (frontend !== 'none' && resolvedApprouter) postInitFacets.push('html5-repo')
   if (frontend !== 'none' || prodDb === 'postgres') {
     patches.push('mta.yaml')
   }
@@ -67,6 +67,7 @@ export function buildPlan({ name, lang, devDb, prodDb, auth, frontend, approuter
 
   return {
     facets,
+    postInitFacets,
     patches,
     approuter: resolvedApprouter,
     promptForApprouter,

@@ -11,7 +11,9 @@ import { promptProdDb } from '../prompts/prod-db.js'
 import { promptProjectName, validateProjectName } from '../prompts/project-name.js'
 import { validateTarget } from '../steps/01-validate-target.js'
 import { runCdsInit } from '../steps/02-cds-init.js'
+import { runCdsAddFrontend } from '../steps/03-cds-add-frontend.js'
 import { patchCdsrc } from '../steps/04-patch-cdsrc.js'
+import { patchMta } from '../steps/05-patch-mta.js'
 import { writeExtras } from '../steps/06-write-extras.js'
 import { writeStubs } from '../steps/08-write-stubs.js'
 
@@ -70,6 +72,11 @@ export async function runNewCommand(name, options = {}) {
     await validateTarget(projectName, options)
     await runCdsInit({ name: projectName, facets: plan.facets })
     await patchCdsrc(projectName, { ...inputs, name: projectName })
+    if (frontend !== 'none') {
+      await runCdsAddFrontend(projectName, plan)
+    }
+    if (plan.approuter)
+      await patchMta(projectName, { ...inputs, name: projectName, approuter: true })
     const needsCdsTest = await writeStubs(projectName, { ...inputs, name: projectName })
     await writeExtras(projectName, { ...inputs, name: projectName, needsCdsTest })
   } catch (error) {

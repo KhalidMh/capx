@@ -75,10 +75,11 @@ export async function runNewCommand(name, options = {}) {
     if (frontend !== 'none') {
       await runCdsAddFrontend(projectName, plan)
     }
-    if (plan.approuter)
-      await patchMta(projectName, { ...inputs, name: projectName, approuter: true })
+    if (plan.approuter || prodDb === 'hana') {
+      await patchMta(projectName, { ...inputs, name: projectName, approuter: plan.approuter })
+    }
     const needsCdsTest = await writeStubs(projectName, { ...inputs, name: projectName })
-    await writeExtras(projectName, { ...inputs, name: projectName, needsCdsTest })
+    await writeExtras(projectName, { ...inputs, name: projectName, lang, needsCdsTest })
   } catch (error) {
     console.error(error.message)
     process.exitCode = 1

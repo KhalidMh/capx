@@ -4,9 +4,10 @@ import { parseDocument } from 'yaml'
 import { readJson, writeJson } from '../utils/json.js'
 import { writeFileAtomic } from '../utils/fs.js'
 
-export async function patchMta(projectDirectory, { name, frontend, approuter }) {
+export async function patchMta(projectDirectory, { name, frontend, approuter, prodDb }) {
   const mtaPath = join(projectDirectory, 'mta.yaml')
   const document = parseDocument(await readFile(mtaPath, 'utf8'))
+  if (prodDb === 'hana') removePostgresDeployment(document)
   const names = renameMtaArtifacts(document, name)
   await writeFileAtomic(mtaPath, document.toString())
 
@@ -15,6 +16,37 @@ export async function patchMta(projectDirectory, { name, frontend, approuter }) 
   }
 
   return names
+}
+
+function removePostgresDeployment(document) {
+  const modules = document.get('modules')
+  const resources = document.get('resources')
+  const postgresNames = new Set(
+    (resources?.items ?? [])
+      .filter(
+        (resource) =>
+          resource.get('parameters', true)?.get('service', true)?.value === 'postgresql-db',
+      )
+      .map((resource) => resource.get('name', true)?.value),
+  )
+
+  if (postgresNames.size === 0) return
+  modules.items = (modules?.items ?? []).filter((module) => {
+    const path = module.get('path', true)?.value
+    return path !== 'gen/pg'
+  })
+  resources.items = (resources?.items ?? []).filter(
+    (resource) => !postgresNames.has(resource.get('name', true)?.value),
+  )
+  for (const module of modules.items) removeRequirements(module, postgresNames)
+}
+
+function removeRequirements(module, names) {
+  const requires = module.get('requires')
+  if (!requires?.items) return
+  requires.items = requires.items.filter(
+    (requirement) => !names.has(requirement.get('name', true)?.value),
+  )
 }
 
 function renameMtaArtifacts(document, projectName) {

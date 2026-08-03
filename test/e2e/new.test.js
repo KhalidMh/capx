@@ -32,9 +32,24 @@ elif [ "$1" = "init" ]; then
   printf 'init %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
   mkdir "$2"
   printf '{"name":"%s","type":"module","dependencies":{"@sap/cds":"^10.0.0"}}' "$2" > "$2/package.json"
+  if printf '%s' "$5" | grep -q hana; then
+    printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n    requires:\n      - name: generated-db\n  - name: generated-db-deployer\n    type: hdb\n    path: gen/db\n    requires:\n      - name: generated-db\n' > "$2/mta.yaml"
+  else
+    printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n' > "$2/mta.yaml"
+  fi
+  if printf '%s' "$5" | grep -q postgres; then
+    printf '  - name: generated-postgres-deployer\n    type: nodejs\n    path: gen/pg\n    requires:\n      - name: generated-postgres\n' >> "$2/mta.yaml"
+  fi
   if printf '%s' "$5" | grep -q approuter; then
     mkdir -p "$2/app/router"
-    printf 'modules:\n  - name: generated-srv\n    type: nodejs\n    path: gen/srv\n  - name: generated-router\n    type: approuter.nodejs\n    path: app/router\nresources: []\n' > "$2/mta.yaml"
+    printf '  - name: generated-router\n    type: approuter.nodejs\n    path: app/router\n' >> "$2/mta.yaml"
+  fi
+  printf 'resources:\n' >> "$2/mta.yaml"
+  if printf '%s' "$5" | grep -q hana; then
+    printf '  - name: generated-db\n    type: com.sap.xs.hdi-container\n' >> "$2/mta.yaml"
+  fi
+  if printf '%s' "$5" | grep -q postgres; then
+    printf '  - name: generated-postgres\n    type: org.cloudfoundry.managed-service\n    parameters:\n      service: postgresql-db\n' >> "$2/mta.yaml"
   fi
 elif [ "$1" = "add" ] && { [ "$2" = "vue" ] || [ "$2" = "react" ]; } && [ "$3" = "--into" ] && [ "$4" = "frontend" ]; then
   printf 'add %s\n' "$*" >> "$CAPX_CDS_CALLS_FILE"
@@ -284,6 +299,37 @@ describe('capx new Phase 3', () => {
     await expect(readFile(cdsCallsFile, 'utf8')).resolves.not.toMatch(
       /router-only-app.*add (vue|react|html5-repo)/,
     )
+  })
+
+  it('patches a backend-only PostgreSQL-development HANA-production MTA without reading router files', async () => {
+    const result = await runPromptedNew(
+      [cli, 'new', 'backend-hana-app'],
+      [
+        ['Backend language?', '\r'],
+        ['Database for local development?', '\x1b[B\r'],
+        ['Database for production?', '\r'],
+        ['Authentication?', '\x1b[A\r'],
+        ['Frontend framework?', '\r'],
+        ['Proceed?', '\r'],
+      ],
+      {
+        CAPX_EXPECTED_CDS_NAME: 'backend-hana-app',
+        CAPX_EXPECTED_CDS_FACETS: 'postgres,hana,mta,test,lint',
+      },
+    )
+
+    expect(result.code).toBe(0)
+    const project = join(workspace, 'backend-hana-app')
+    const mta = await readFile(join(project, 'mta.yaml'), 'utf8')
+    expect(mta).toContain('name: backend-hana-app-db-deployer')
+    expect(mta).toContain('name: backend-hana-app-db')
+    expect(mta).not.toContain('gen/pg')
+    expect(mta).not.toContain('postgresql-db')
+    await expect(
+      readFile(join(project, 'app', 'router', 'xs-app.json'), 'utf8'),
+    ).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
   })
 
   it('exits 1 with Cancelled when a prompt is cancelled', async () => {

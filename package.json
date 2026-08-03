@@ -16,7 +16,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch:required": "node test/e2e/run-required-cds-watch.js",
-    "test:frontend:required": "node test/e2e/run-required-frontend.js"
+    "test:frontend:required": "node test/e2e/run-required-frontend.js",
+    "test:mta:required": "node test/e2e/run-required-mta.js"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",

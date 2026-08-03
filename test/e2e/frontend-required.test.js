@@ -97,10 +97,30 @@ describe.skipIf(!enabled)('required real CAP DK 10 frontend integration', () => 
       const { readFile } = await import('node:fs/promises')
       const mta = parseDocument(await readFile(join(project, 'mta.yaml'), 'utf8')).toJS()
       const moduleNames = mta.modules.map((module) => module.name)
+      const resourceNames = mta.resources.map((resource) => resource.name)
       expect(moduleNames).toContain(`${frontend}-frontend-srv`)
       expect(moduleNames).toContain(`${frontend}-frontend-frontend`)
       expect(moduleNames).toContain(`${frontend}-frontend-approuter`)
       expect(moduleNames).toContain(`${frontend}-frontend-db-deployer`)
+      expect(resourceNames).toContain(`${frontend}-frontend-db`)
+      expect(
+        mta.modules.find((module) => module.type === 'nodejs' && module.path === 'gen/srv').name,
+      ).toBe(`${frontend}-frontend-srv`)
+      expect(
+        mta.modules.find((module) => module.type === 'html5' && module.path === 'app/frontend')
+          .name,
+      ).toBe(`${frontend}-frontend-frontend`)
+      expect(
+        mta.modules.find(
+          (module) => module.type === 'approuter.nodejs' && module.path === 'app/router',
+        ).name,
+      ).toBe(`${frontend}-frontend-approuter`)
+      expect(
+        mta.modules.find((module) => module.type === 'hdb' && module.path === 'gen/db').name,
+      ).toBe(`${frontend}-frontend-db-deployer`)
+      expect(
+        mta.resources.find((resource) => resource.type === 'com.sap.xs.hdi-container').name,
+      ).toBe(`${frontend}-frontend-db`)
       const router = JSON.parse(
         await readFile(join(project, 'app', 'router', 'xs-app.json'), 'utf8'),
       )

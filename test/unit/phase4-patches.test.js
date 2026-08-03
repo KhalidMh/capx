@@ -209,6 +209,28 @@ describe('Phase 4 patches', () => {
     })
   })
 
+  it('adds CAP type declarations for a TypeScript project', async () => {
+    const directory = await project()
+    await writeFile(
+      join(directory, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { strict: true, types: ['node'] } }, null, 2),
+    )
+
+    await writeExtras(directory, {
+      name: 'bookshop',
+      lang: 'ts',
+      devDb: 'sqlite',
+      prodDb: 'hana',
+      auth: 'xsuaa',
+    })
+
+    const packageJson = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
+    expect(packageJson.devDependencies['@cap-js/cds-types']).toBe('^0.18.0')
+    const tsconfig = JSON.parse(await readFile(join(directory, 'tsconfig.json'), 'utf8'))
+    expect(tsconfig.compilerOptions).toMatchObject({ strict: true })
+    expect(tsconfig.compilerOptions.types).toEqual(['node', '@cap-js/cds-types'])
+  })
+
   it('adds cds-test for the fallback smoke test', async () => {
     const directory = await project()
 

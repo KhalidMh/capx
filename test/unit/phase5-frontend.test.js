@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { parseDocument } from 'yaml'
 import { buildPlan } from '../../src/decision-matrix.js'
 import { runCdsAddFrontend } from '../../src/steps/03-cds-add-frontend.js'
 import { patchMta } from '../../src/steps/05-patch-mta.js'
@@ -140,5 +141,51 @@ describe('patchMta', () => {
       service: 'html5-apps-repo-rt',
     })
     expect(router.routes).not.toContainEqual({ source: '^/(.*)$', localDir: 'resources' })
+  })
+
+  it('removes the development-only PostgreSQL deployer and binding for a HANA production MTA', async () => {
+    const directory = await project()
+    await writeFile(
+      join(directory, 'mta.yaml'),
+      `modules:
+  - name: bookshop-srv
+    type: nodejs
+    path: gen/srv
+    requires:
+      - name: bookshop-db
+      - name: bookshop-postgres
+  - name: bookshop-db-deployer
+    type: hdb
+    path: gen/db
+    requires:
+      - name: bookshop-db
+  - name: bookshop-postgres-deployer
+    type: nodejs
+    path: gen/pg
+    requires:
+      - name: bookshop-postgres
+resources:
+  - name: bookshop-db
+    type: com.sap.xs.hdi-container
+  - name: bookshop-postgres
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: postgresql-db
+`,
+    )
+
+    await patchMta(directory, {
+      name: 'bookshop',
+      frontend: 'none',
+      approuter: false,
+      prodDb: 'hana',
+    })
+
+    const mta = parseDocument(await readFile(join(directory, 'mta.yaml'), 'utf8')).toJS()
+    expect(mta.modules.map((module) => module.name)).not.toContain('bookshop-postgres-deployer')
+    expect(mta.resources.map((resource) => resource.name)).not.toContain('bookshop-postgres')
+    expect(mta.modules.find((module) => module.name === 'bookshop-srv').requires).toEqual([
+      { name: 'bookshop-db' },
+    ])
   })
 })

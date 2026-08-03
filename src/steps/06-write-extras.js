@@ -15,7 +15,7 @@ const requiredScripts = {
 
 export async function writeExtras(
   projectDirectory,
-  { name, devDb, prodDb, auth, needsCdsTest = false },
+  { name, lang, devDb, prodDb, auth, needsCdsTest = false },
 ) {
   await Promise.all([
     writeFileAtomic(join(projectDirectory, '.prettierrc'), await template('prettierrc.json')),
@@ -26,7 +26,8 @@ export async function writeExtras(
     ),
   ])
   await patchGitignore(projectDirectory)
-  await patchPackage(projectDirectory, needsCdsTest)
+  await patchPackage(projectDirectory, { lang, needsCdsTest })
+  if (lang === 'ts') await patchTsconfig(projectDirectory)
 }
 
 async function patchGitignore(projectDirectory) {
@@ -43,7 +44,7 @@ async function patchGitignore(projectDirectory) {
   await writeFileAtomic(path, `${current.replace(/\s*$/, '')}\n${additions.join('\n')}\n`)
 }
 
-async function patchPackage(projectDirectory, needsCdsTest) {
+async function patchPackage(projectDirectory, { lang, needsCdsTest }) {
   const path = join(projectDirectory, 'package.json')
   const packageJson = await readJson(path)
   packageJson.scripts ??= {}
@@ -52,8 +53,20 @@ async function patchPackage(projectDirectory, needsCdsTest) {
   }
   packageJson.devDependencies ??= {}
   packageJson.devDependencies.prettier ??= '^3'
+  if (lang === 'ts') packageJson.devDependencies['@cap-js/cds-types'] ??= '^0.18.0'
   if (needsCdsTest) packageJson.devDependencies['@cap-js/cds-test'] ??= '^1'
   await writeJson(path, packageJson)
+}
+
+async function patchTsconfig(projectDirectory) {
+  const path = join(projectDirectory, 'tsconfig.json')
+  const tsconfig = await readJson(path)
+  tsconfig.compilerOptions ??= {}
+  tsconfig.compilerOptions.types ??= []
+  if (!tsconfig.compilerOptions.types.includes('@cap-js/cds-types')) {
+    tsconfig.compilerOptions.types.push('@cap-js/cds-types')
+  }
+  await writeJson(path, tsconfig)
 }
 
 async function template(name) {

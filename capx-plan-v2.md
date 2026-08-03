@@ -524,6 +524,11 @@ Exact sequence after prompts and final confirm. Each numbered line is one shell 
    comment noting the plan may need adjusting per subaccount
    entitlement.
 
+   If prodDb === 'hana', remove any PostgreSQL resource, `gen/pg`
+   deployer module, and references that were added for PostgreSQL development.
+   The production HANA build produces `gen/db`, so retaining `gen/pg` makes
+   `mbt build` reject the descriptor.
+
 8. Write back. Do NOT regenerate the file from a template.
 ```
 
@@ -892,7 +897,7 @@ CAP DK 10.0.6 already uses the intended service and db deployer module names; th
 ### Phase 6 — MTA build integration
 
 - `mbt build` on generated projects
-- Verify module names came out as `<project>-srv` / `-db` / `-frontend` / `-approuter`
+- Verify module names came out as `<project>-srv` / `-db` / `-frontend` / `-approuter`; for HANA projects, `<project>-db` is the HDI resource and the generated deployer remains `<project>-db-deployer`.
 
 **Done when:** `mbt build` exits 0 on smoke tests #2, #3, #4. This is the big integration gate.
 

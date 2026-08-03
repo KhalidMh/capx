@@ -13,6 +13,7 @@ export const packageVersions = {
   postgres: '^3.0.1',
   hana: '^3.0.2',
   cdsTyper: '^0.40.2',
+  cdsTypes: '^0.18.0',
   cdsTest: '^1.0.1',
   chai: '^6.2.2',
   chaiAsPromised: '^8.0.2',

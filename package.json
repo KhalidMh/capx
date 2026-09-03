@@ -1,5 +1,5 @@
 {
-  "name": "capx",
+  "name": "capx-cli",
   "version": "0.1.0",
   "description": "An opinionated installer for SAP CAP Node.js projects.",
   "license": "MIT",

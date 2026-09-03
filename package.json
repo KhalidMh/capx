@@ -1,5 +1,5 @@
 {
-  "name": "capx-cli",
+  "name": "@khalidmh/capx",
   "version": "0.1.0",
   "description": "An opinionated installer for SAP CAP Node.js projects.",
   "license": "MIT",
@@ -18,6 +18,9 @@
     "url": "https://github.com/KhalidMh/capx/issues"
   },
   "homepage": "https://github.com/KhalidMh/capx#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "bin/",
     "src/",

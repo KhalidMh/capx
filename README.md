@@ -28,10 +28,10 @@ Doctor runs as the first step of `capx new`; there is no standalone `capx doctor
 ## Install
 
 ```sh
-npm install --global capx-cli
+npm install --global @khalidmh/capx
 ```
 
-The package is published as `capx-cli`; the installed command is `capx`.
+The package is published as `@khalidmh/capx`; the installed command is `capx`.
 
 ## Quickstart
 
